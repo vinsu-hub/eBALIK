@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Books{% endblock %}
+{% block topbar_title %}Book Catalog{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h3 class="page-title"><i class="bi bi-journal-bookmark"></i> Book Catalog</h3>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookModal">
+    <i class="bi bi-plus-circle"></i> Add Book
+  </button>
+</div>
+
+<form method="GET" class="mb-4">
+  <div class="input-group search-wrap">
+    <input type="text" name="q" class="form-control" placeholder="Search title, author, or RFID UID" value="{{ query }}">
+    <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+  </div>
+</form>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="data-table align-middle">
+      <thead>
+        <tr>
+          <th class="hide-sm">RFID UID</th>
+          <th>Title</th>
+          <th class="hide-md">Author</th>
+          <th class="hide-md">Accession #</th>
+          <th class="hide-sm">Category</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for book in books %}
+        <tr>
+          <td data-label="RFID" class="hide-sm"><code class="rfid">{{ book.rfid_uid }}</code></td>
+          <td data-label="Title" class="text-primary" style="font-weight: var(--font-medium);">{{ book.title }}</td>
+          <td data-label="Author" class="hide-md">{{ book.author or "--" }}</td>
+          <td data-label="Accession #" class="hide-md">{{ book.accession_number or "--" }}</td>
+          <td data-label="Category" class="hide-sm">{{ book.category or "--" }}</td>
+          <td data-label="Status">
+            {% if book.status == 'available' %}
+              <span class="pill pill-success">Available</span>
+            {% elif book.status == 'borrowed' %}
+              <span class="pill pill-warning">Borrowed</span>
+            {% else %}
+              <span class="pill pill-neutral">{{ book.status }}</span>
+            {% endif %}
+          </td>
+          <td data-label="Actions" class="text-nowrap">
+            {% if book.status == 'available' %}
+            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#borrowModal{{ book.book_id }}">
+              <i class="bi bi-person-plus"></i> Borrow
+            </button>
+            {% endif %}
+            <form method="POST" action="{{ url_for('books.delete_book', book_id=book.book_id) }}" class="d-inline" onsubmit="return confirm('Remove this book?');">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+
+        <!-- Borrow Modal -->
+        <div class="modal fade" id="borrowModal{{ book.book_id }}" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <form method="POST" action="{{ url_for('books.borrow_book', book_id=book.book_id) }}">
+                <div class="modal-header">
+                  <h5 class="modal-title">Borrow "{{ book.title }}"</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label fw-medium">Borrower Name <span class="text-danger">*</span></label>
+                    <input type="text" name="borrower_name" class="form-control" required
+                           style="height: 2.5rem; border-radius: var(--radius-md);">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-medium">Borrower ID <span class="text-muted fw-normal">(optional)</span></label>
+                    <input type="text" name="borrower_id" class="form-control"
+                           style="height: 2.5rem; border-radius: var(--radius-md);">
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-primary">Confirm Borrow</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No books found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Book Modal -->
+<div class="modal fade" id="addBookModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('books.add_book') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">Add New Book</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-medium">RFID UID <span class="text-danger">*</span></label>
+            <div class="input-group" style="gap: 0.5rem;">
+              <input type="text" name="rfid_uid" id="rfid_uid_input" class="form-control" placeholder="e.g. 04A1B2C3" required
+                     style="height: 2.5rem; border-radius: var(--radius-md); flex: 1;">
+              <button type="button" class="btn btn-outline-primary" id="btn-scan-tag" style="height: 2.5rem; white-space: nowrap; border-radius: var(--radius-md);">
+                <i class="bi bi-r-circle"></i> Scan to Register
+              </button>
+            </div>
+            <div id="scan-status" class="scan-status mt-1"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-medium">Title <span class="text-danger">*</span></label>
+            <input type="text" name="title" id="book_title_input" class="form-control" required
+                   style="height: 2.5rem; border-radius: var(--radius-md);">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-medium">Author</label>
+            <input type="text" name="author" class="form-control"
+                   style="height: 2.5rem; border-radius: var(--radius-md);">
+          </div>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label fw-medium">Accession #</label>
+              <input type="text" name="accession_number" class="form-control"
+                     style="height: 2.5rem; border-radius: var(--radius-md);">
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label fw-medium">Category</label>
+              <input type="text" name="category" class="form-control"
+                     style="height: 2.5rem; border-radius: var(--radius-md);">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Book</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/book_rfid_scan.js') }}"></script>
+{% endblock %}

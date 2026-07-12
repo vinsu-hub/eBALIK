@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block topbar_title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h3 class="page-title"><i class="bi bi-grid-1x2"></i> Overview</h3>
+  <span id="live-indicator" class="badge bg-secondary">
+    <i class="bi bi-broadcast"></i> waiting for scans...
+  </span>
+</div>
+
+<!-- Stat Cards -->
+<div class="grid-stats mb-4">
+  <div class="card stat-card stat-primary">
+    <div class="card-body">
+      <div class="stat-label">Total Books</div>
+      <div class="stat-value">{{ total_books }}</div>
+      <i class="bi bi-journal-bookmark stat-icon text-primary"></i>
+    </div>
+  </div>
+  <div class="card stat-card stat-success">
+    <div class="card-body">
+      <div class="stat-label">Available</div>
+      <div class="stat-value text-success">{{ available_books }}</div>
+      <i class="bi bi-check-circle stat-icon text-success"></i>
+    </div>
+  </div>
+  <div class="card stat-card stat-warning">
+    <div class="card-body">
+      <div class="stat-label">Borrowed</div>
+      <div class="stat-value text-warning">{{ borrowed_books }}</div>
+      <i class="bi bi-arrow-up-right-square stat-icon text-warning"></i>
+    </div>
+  </div>
+  <div class="card stat-card stat-info">
+    <div class="card-body">
+      <div class="stat-label">Returns Logged</div>
+      <div class="stat-value text-info">{{ returns_today }}</div>
+      <i class="bi bi-arrow-down-left-square stat-icon text-info"></i>
+    </div>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="grid-content">
+  <div>
+    <!-- Recent Returns -->
+    <div class="card mb-3">
+      <div class="card-header">
+        <i class="bi bi-clock-history"></i> Recent Returns
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="recent-returns-table">
+          <thead>
+            <tr><th>Book</th><th>Borrower</th><th>Returned At</th></tr>
+          </thead>
+          <tbody>
+            {% for r in recent_returns %}
+            <tr>
+              <td data-label="Book" class="text-primary">{{ r.book.title }}</td>
+              <td data-label="Borrower">{{ r.book.current_borrow().borrower_name if r.book.current_borrow() else "--" }}</td>
+              <td data-label="Returned At">{{ r.returned_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-4">No returns yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Overdue Books -->
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-exclamation-triangle text-warning"></i> Overdue Books
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Book</th><th>Borrower</th><th>Due Date</th></tr>
+          </thead>
+          <tbody>
+            {% for b in overdue %}
+            <tr>
+              <td data-label="Book" class="text-primary">{{ b.book.title }}</td>
+              <td data-label="Borrower">{{ b.borrower_name }}</td>
+              <td data-label="Due Date">{{ b.due_date.strftime("%Y-%m-%d") }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-4">No overdue books.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <!-- Live System Log -->
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-terminal"></i> Live System Log
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="live-log-list">
+          {% for log in recent_logs %}
+          <li class="list-group-item">
+            <span class="pill pill-{{ 'danger' if log.event_type == 'ERROR' else ('warning' if log.event_type == 'WARNING' else 'neutral') }}">{{ log.event_type }}</span>
+            {{ log.message }}
+            <div class="log-timestamp">{{ log.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</div>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted text-center py-4">No log entries yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}System Logs{% endblock %}
+{% block topbar_title %}System Logs{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h3 class="page-title"><i class="bi bi-terminal"></i> System Logs</h3>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th class="hide-sm">Source</th>
+          <th>Message</th>
+          <th class="hide-md">RFID UID</th>
+          <th class="hide-sm">Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td data-label="Type">
+            {% if log.event_type == 'ERROR' %}
+              <span class="pill pill-danger">{{ log.event_type }}</span>
+            {% elif log.event_type == 'WARNING' %}
+              <span class="pill pill-warning">{{ log.event_type }}</span>
+            {% else %}
+              <span class="pill pill-neutral">{{ log.event_type }}</span>
+            {% endif %}
+          </td>
+          <td data-label="Source" class="hide-sm">{{ log.source }}</td>
+          <td data-label="Message">{{ log.message }}</td>
+          <td data-label="RFID UID" class="hide-md">{{ log.rfid_uid or "--" }}</td>
+          <td data-label="Timestamp" class="hide-sm">{{ log.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">No log entries yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Return Records{% endblock %}
+{% block topbar_title %}Return Records{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h3 class="page-title"><i class="bi bi-arrow-down-left-square"></i> Return Records</h3>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Book</th>
+          <th class="hide-sm">RFID UID</th>
+          <th>Returned At</th>
+          <th class="hide-md">Sensor Verified</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td data-label="Book" class="text-primary" style="font-weight: var(--font-medium);">{{ r.book.title }}</td>
+          <td data-label="RFID UID" class="hide-sm"><code class="rfid">{{ r.rfid_uid }}</code></td>
+          <td data-label="Returned At">{{ r.returned_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+          <td data-label="Verified" class="hide-md">
+            {% if r.verified_by_sensors %}
+              <span class="pill pill-success"><i class="bi bi-check-circle"></i> Verified</span>
+            {% else %}
+              <span class="pill pill-neutral">Manual</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-4">No returns recorded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

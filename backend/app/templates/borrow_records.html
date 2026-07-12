@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Borrow Records{% endblock %}
+{% block topbar_title %}Borrow Records{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h3 class="page-title"><i class="bi bi-arrow-up-right-square"></i> Borrow Records</h3>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Book</th>
+          <th>Borrower</th>
+          <th class="hide-sm">Borrower ID</th>
+          <th>Borrow Date</th>
+          <th class="hide-md">Due Date</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td data-label="Book" class="text-primary" style="font-weight: var(--font-medium);">{{ r.book.title }}</td>
+          <td data-label="Borrower">{{ r.borrower_name }}</td>
+          <td data-label="Borrower ID" class="hide-sm">{{ r.borrower_id or "--" }}</td>
+          <td data-label="Borrow Date">{{ r.borrow_date.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td data-label="Due Date" class="hide-md">{{ r.due_date.strftime("%Y-%m-%d") }}</td>
+          <td data-label="Status">
+            {% if r.is_returned %}
+              <span class="pill pill-success">Returned</span>
+            {% else %}
+              <span class="pill pill-warning">Active</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">No borrow records yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
