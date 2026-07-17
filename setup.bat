@@ -27,7 +27,7 @@ pip install -r backend\requirements.txt
 :: --- 3. CH340 driver ---
 echo.
 echo Running CH340 driver installer...
-call tools\install_ch340_driver.bat
+call TOOLS\install_ch340_driver.bat 2>nul || echo [SKIP] CH340 driver installer not found, skipping.
 
 :: --- 4. Check MySQL ---
 mysql --version >nul 2>&1

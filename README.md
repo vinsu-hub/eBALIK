@@ -54,7 +54,7 @@ cp .env.example .env
 # (macOS: /dev/cu.usbserial-XXXX)
 
 python create_admin.py          # creates your first login
-python run.py                   # starts the server on http://localhost:5000
+python run.py                   # starts the server on http://localhost:5001
 ```
 
 If you don't have the Arduino plugged in yet, set `SERIAL_ENABLED=false`
@@ -77,7 +77,7 @@ at a time.
 
 ## 4. Log in
 
-Visit `http://localhost:5000`, log in with the account you created in
+Visit `http://localhost:5001`, log in with the account you created in
 `create_admin.py`, and you should see the dashboard. Scan an RFID-tagged
 book that has an open borrow record and watch the "Live System Log" and
 "Recent Returns" panels update in real time as the Arduino works through
@@ -106,7 +106,7 @@ server:
 2. Install MySQL Server on the laptop, run `schema.sql` (+ `seed_data.sql`).
 3. Follow steps 2–3 above on that machine, plugging the Arduino into the
    same laptop running Flask.
-4. `python run.py` and open `http://localhost:5000` in the browser on that
+4. `python run.py` and open `http://localhost:5001` in the browser on that
    laptop for the panel to see.
 
 No internet connection is required at demo time except for loading
