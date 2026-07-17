@@ -37,6 +37,14 @@ time via Socket.IO.
    └──────────┘    │         │
    ┌──────────┐    │  pin 5  │
    │  Buzzer  │◀───│         │
+   └──────────┘    │         │
+   ┌──────────┐    │  pin 7  │
+   │  Green   │◀───│  (LED)  │
+   │  LED     │    │         │
+   └──────────┘    │         │
+   ┌──────────┐    │  pin 8  │
+   │  Red     │◀───│  (LED)  │
+   │  LED     │    │         │
    └──────────┘    └─────────┘
 ```
 
@@ -57,6 +65,8 @@ time via Socket.IO.
 | IR Sensor (Safety) | Obstacle sensor | Detects obstructions before closing |
 | LCD Display | 16x2, I2C (addr 0x27) | User feedback messages |
 | Buzzer | Active, 5V | Audible confirmation/alerts |
+| Green LED | 5mm, with 220Ω resistor | Visual: return approved (pin D7) |
+| Red LED | 5mm, with 220Ω resistor | Visual: return rejected (pin D8) |
 
 ### 2.2 Pin Assignments
 
@@ -68,6 +78,8 @@ time via Socket.IO.
 | 3 | IR Sensor 2 (Full Entry) | Active LOW |
 | 4 | IR Sensor 3 (Safety) | Active LOW |
 | 5 | Active Buzzer | Digital HIGH = on |
+| 7 | Green LED | Return approved indicator (220Ω to GND) |
+| 8 | Red LED | Return rejected indicator (220Ω to GND) |
 | A4 (SDA), A5 (SCL) | I2C LCD | Address 0x27 |
 
 ---
@@ -525,6 +537,7 @@ D:\eBALIK\
 ├── README.md                         # Setup guide + architecture overview
 ├── SESSION_HANDOFF.md                # Session notes (restart/stop commands)
 ├── setup.bat                         # Full environment setup script
+├── WIRING_GUIDE.md                   # Complete wiring guide with pin map + wire colors
 ├── currentsystemarchitecture.md      # This file
 │
 ├── arduino/

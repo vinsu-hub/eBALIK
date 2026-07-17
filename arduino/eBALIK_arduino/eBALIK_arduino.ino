@@ -8,6 +8,8 @@
     - 3x IR Obstacle Sensors (Entrance / Full Entry / Safety Obstruction)
     - 16x2 I2C LCD
     - Active Buzzer
+    - Green LED (return approved)
+    - Red LED (return rejected)
 
   Communication:
     Talks to the Flask backend over USB Serial (115200 baud) using a
@@ -37,6 +39,8 @@
     IR2 (full entry)   = 3
     IR3 (obstruction)  = 4
     Buzzer             = 5
+    Green LED          = 7
+    Red LED            = 8
     LCD (I2C)          = SDA A4 / SCL A5, addr 0x27 (16x2)
 */
 
@@ -54,6 +58,8 @@
 #define IR_FULL_ENTRY_PIN   3
 #define IR_OBSTRUCTION_PIN  4
 #define BUZZER_PIN    5
+#define LED_GREEN_PIN 7
+#define LED_RED_PIN   8
 
 // IR sensors: most obstacle modules pull LOW when they detect something.
 // Flip this if your modules are active-HIGH.
@@ -102,6 +108,11 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
+  pinMode(LED_GREEN_PIN, OUTPUT);
+  pinMode(LED_RED_PIN, OUTPUT);
+  digitalWrite(LED_GREEN_PIN, LOW);
+  digitalWrite(LED_RED_PIN, LOW);
+
   returnSlotServo.attach(SERVO_PIN);
   returnSlotServo.write(SERVO_CLOSED_ANGLE);
 
@@ -123,6 +134,7 @@ void loop() {
     case STATE_AWAITING_VALIDATION:
       if (millis() - stateEnteredAt > RFID_VALIDATION_TIMEOUT) {
         showError("No response", "Try again");
+        blinkRed();
         sendReturnFailed(pendingUID, "PC_TIMEOUT");
         goIdleAfterDelay(1500);
       }
@@ -136,6 +148,7 @@ void loop() {
         stateEnteredAt = millis();
       } else if (millis() - stateEnteredAt > INSERT_TIMEOUT) {
         showError("Timeout", "No book inserted");
+        blinkRed();
         sendReturnFailed(pendingUID, "INSERT_TIMEOUT");
         closeSlotAndReset();
       }
@@ -149,6 +162,7 @@ void loop() {
         stateEnteredAt = millis();
       } else if (millis() - stateEnteredAt > FULL_ENTRY_TIMEOUT) {
         showError("Incomplete", "Book not fully in");
+        blinkRed();
         sendReturnFailed(pendingUID, "INCOMPLETE_ENTRY");
         closeSlotAndReset();
       }
@@ -163,6 +177,7 @@ void loop() {
         }
         if (millis() - stateEnteredAt > OBSTRUCTION_CLEAR_TIMEOUT) {
           showError("Cancelled", "Obstruction timeout");
+          blinkRed();
           sendReturnFailed(pendingUID, "OBSTRUCTION_TIMEOUT");
           goIdleAfterDelay(1500); // leave slot open, do not force-close on obstruction
         }
@@ -176,6 +191,7 @@ void loop() {
       Serial.println("STATUS,SLOT_CLOSED");
       Serial.print("RETURN_SUCCESS,");
       Serial.println(pendingUID);
+      blinkGreen();
       beepSuccess();
       showMessage("Return success!", "Thank you.");
       goIdleAfterDelay(2000);
@@ -264,6 +280,8 @@ void handleCommand(String line) {
   }
 
   if (cmd == "VALID") {
+    blinkGreen();
+    beepApproved();
     openSlotForInsertion();
   } else if (cmd == "INVALID") {
     // Parse optional reason field (e.g. INVALID,<uid>,UNKNOWN_TAG)
@@ -279,6 +297,7 @@ void handleCommand(String line) {
     } else {
       showError("Invalid book", "Not borrowed");
     }
+    blinkRed();
     beepError();
     goIdleAfterDelay(1500);
   }
@@ -354,6 +373,10 @@ void showError(String line1, String line2) {
 }
 
 // ---------- Buzzer helpers ----------
+void beepApproved() {
+  tone(BUZZER_PIN, 1800, 100);
+}
+
 void beepSuccess() {
   tone(BUZZER_PIN, 1500, 120);
   delay(150);
@@ -362,4 +385,17 @@ void beepSuccess() {
 
 void beepError() {
   tone(BUZZER_PIN, 400, 300);
+}
+
+// ---------- LED helpers ----------
+void blinkGreen() {
+  digitalWrite(LED_GREEN_PIN, HIGH);
+  delay(300);
+  digitalWrite(LED_GREEN_PIN, LOW);
+}
+
+void blinkRed() {
+  digitalWrite(LED_RED_PIN, HIGH);
+  delay(300);
+  digitalWrite(LED_RED_PIN, LOW);
 }

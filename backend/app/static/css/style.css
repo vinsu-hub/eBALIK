@@ -1020,6 +1020,14 @@ code.rfid {
   background: var(--color-accent-700);
 }
 
+.fab-scan {
+  background: var(--color-primary-600);
+}
+
+.fab-scan:hover {
+  background: var(--color-primary-700);
+}
+
 @keyframes fab-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

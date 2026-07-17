@@ -49,6 +49,7 @@ class C:
 BAUD = 115200
 TIMEOUT = 1
 PING_TIMEOUT = 3
+BOOT_DELAY = 3.5
 FLASK_API = "http://localhost:5000/api/hw-status"
 
 
@@ -118,15 +119,17 @@ def colorize_line(line):
 
 
 def try_ping(ser):
-    ser.reset_input_buffer()
-    ser.write(b"PING\n")
     deadline = time.time() + PING_TIMEOUT
     while time.time() < deadline:
-        raw = ser.readline()
-        if raw:
-            line = raw.decode("utf-8", errors="ignore").strip()
-            if line.upper().startswith("HELLO"):
-                return True, line
+        ser.reset_input_buffer()
+        ser.write(b"PING\n")
+        wait_until = time.time() + 1.0
+        while time.time() < wait_until:
+            raw = ser.readline()
+            if raw:
+                line = raw.decode("utf-8", errors="ignore").strip()
+                if line.upper().startswith("HELLO"):
+                    return True, line
     return False, ""
 
 
@@ -200,8 +203,8 @@ def connect_and_monitor(target_port=None):
             selected = None
             continue
 
-        time.sleep(2)
-        ser.reset_input_buffer()
+        print(f"  {C.DIM}Waiting {BOOT_DELAY}s for Arduino to finish booting...{C.RESET}")
+        time.sleep(BOOT_DELAY)
         print(f"  {C.GREEN}Serial port opened: {selected} @ {BAUD} baud{C.RESET}")
         break
 
@@ -304,8 +307,8 @@ def connect_and_monitor(target_port=None):
                         print(f"\n  {C.BOLD}Connecting to {C.CYAN}{selected}{C.RESET}...")
                     try:
                         ser = serial.Serial(selected, BAUD, timeout=TIMEOUT)
-                        time.sleep(2)
-                        ser.reset_input_buffer()
+                        print(f"  {C.DIM}Waiting {BOOT_DELAY}s for Arduino to finish booting...{C.RESET}")
+                        time.sleep(BOOT_DELAY)
                         print(f"  {C.GREEN}Reconnected: {selected} @ {BAUD} baud{C.RESET}")
                         print(f"  {C.DIM}Type {C.CYAN}PING{C.DIM} to verify connection.{C.RESET}\n")
                         break
@@ -321,7 +324,7 @@ def connect_and_monitor(target_port=None):
 
             if sys.stdin.readable():
                 import msvcrt
-                if msvcrt.kbchew():
+                if msvcrt.kbhit():
                     cmd = input(f"  {C.CYAN}> {C.RESET}").strip()
                     if not cmd:
                         continue

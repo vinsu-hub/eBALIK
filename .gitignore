@@ -19,3 +19,13 @@ Thumbs.db
 
 # Logs
 *.log
+*.err
+*.out
+
+# MySQL data
+mysql_data/
+
+# Claude Code artifacts
+.agents/
+.claude/
+skills-lock.json

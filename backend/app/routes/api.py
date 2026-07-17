@@ -62,6 +62,9 @@ def device_status():
 @api_bp.route("/hw-status", methods=["GET"])
 @login_required
 def get_hw_status():
+    bridge = get_bridge()
+    if bridge and bridge.ser and bridge.ser.is_open:
+        return jsonify({"connected": True, "port": bridge.port or "", "vid_pid": ""})
     return jsonify(_hw_status)
 
 
@@ -220,6 +223,11 @@ def launch_hw_monitor():
 
     if not current_app.config.get("DEBUG_MODE"):
         return jsonify({"error": "Endpoint disabled outside debug mode"}), 403
+
+    bridge = get_bridge()
+    if bridge and bridge.ser and bridge.ser.is_open:
+        return jsonify({"launched": False, "error": "Arduino already connected via dashboard SerialBridge", "connected": True})
+
     if _hw_monitor_proc is not None and _hw_monitor_proc.poll() is None:
         return jsonify({"launched": False, "error": "Hardware monitor already running", "pid": _hw_monitor_proc.pid})
 

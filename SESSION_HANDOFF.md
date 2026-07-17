@@ -1,7 +1,7 @@
 # eBALIK Session Handoff
 
-**Last updated:** 2026-07-12
-**Platform:** Windows (PowerShell), Python 3.14.6
+**Last updated:** 2026-07-14
+**Platform:** Windows (PowerShell), Python 3.13.7
 
 ---
 
@@ -114,23 +114,102 @@
 
 ---
 
+## Session 3 — 2026-07-13 (Full System Setup + hw_monitor.py Bugfixes)
+
+### 1. Full System Setup on This Machine
+- Installed MySQL 8.4.9 via winget (`Oracle.MySQL`), initialized data dir at `C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK\mysql_data`
+- MySQL root password set to `ebalik123`
+- MySQL started manually (not as a service — must be restarted each session)
+- Loaded `schema.sql` + `seed_data.sql` into `ebalik_db`
+- Updated admin hash with real werkzeug scrypt hash (password: `admin123`)
+- Installed Python deps from `backend\requirements.txt` (26 packages) into `backend\venv` (venv reuses existing)
+- Updated `backend\.env`: `DB_PASSWORD=ebalik123`, `SERIAL_ENABLED=false`, `DEBUG_MODE=true`
+- Flask started on port **5001** (port 5000 was taken by PID 4)
+
+### 2. hw_monitor.py Bugfixes (both confirmed)
+#### Issue 1 — kbchew() typo
+- **Line 324**: `msvcrt.kbchew()` → `msvcrt.kbhit()` — confirmed single occurrence in code, no downstream impact
+- Also confirmed `kbchew` mentioned in `SESSION_HANDOFF.md` lines 45 and 228 (cosmetic, documentation only)
+
+#### Issue 2 — No HELLO response
+- **Cause**: Timing — CH340 DTR toggle resets Arduino on serial open. Existing 2s boot delay was too short for Uno R3 bootloader (~1.5-2.5s) + sketch startup. `reset_input_buffer()` at 2s would also discard any `HELLO` sent during `setup()`.
+- **Fix**: Added `BOOT_DELAY = 3.5` constant (line 52), replaced `time.sleep(2)` + `buffer flush` with `time.sleep(BOOT_DELAY)` in both initial connect (line 206-208) and reconnect path (line 310-312)
+- **Fix**: Rewrote `try_ping()` to retry PING every 1s within the 3s timeout window with buffer flush between attempts, instead of a single shot
+- **Firmware uploaded?**: Not yet — Arduino IDE not installed on this machine
+
+### 3. Services Shutdown
+- MySQL process stopped
+- Flask process stopped
+- Created `TODO_TOMORROW.md` for next session
+
+---
+
+## Session 4 — 2026-07-14 (Arduino Integration + FAB Scan + Badge Fix)
+
+### 1. Arduino Physical Setup
+- CH340 USB-serial driver installed (CH341SER_A64 v3.90)
+- Arduino Uno on **COM6** at 115200 baud
+- `SERIAL_ENABLED=true` set in `backend/.env`
+- SerialBridge in Flask holds COM6 — hw_monitor.py cannot coexist
+
+### 2. FAB Button COM6 Conflict Fix
+- **Problem**: "Scan for Arduino" FAB button launched hw_monitor.py which fought SerialBridge for COM6
+- **Fix** (`api.py:216-227`): `/api/hw-monitor/launch` now checks if SerialBridge already has the port, returns `{"connected": true}` instead of launching conflicting process
+- **Fix** (`base.html`): FAB click handler shows green checkmark when Arduino already connected via SerialBridge
+
+### 3. Topbar Badge Race Condition Fix
+- **Problem**: Badge showed "Arduino offline" despite SerialBridge being connected. Root cause: `socket_client.js` `connect` handler fetched `/api/hw-status` which returned stale module-level `_hw_status` dict (never updated by SerialBridge, only by hw_monitor.py POSTs), overwriting the correct state from the earlier `/api/device/status` fetch.
+- **Fix** (`api.py:62-65`): `GET /api/hw-status` now checks `bridge.ser.is_open` live state first, returns accurate connection info. Falls back to `_hw_status` dict only for hw_monitor.py connections.
+- **Impact**: This unblocked the Add Book modal's "Scan to Register" button (disabled when badge lacks `bg-success` class)
+
+### 4. RFID Scan-to-Register FAB Button
+- **New FAB button** (`base.html:104-106`): Blue primary-colored button with RFID icon (`bi-r-circle`), sits at top of FAB stack
+- **Click behavior** (`base.html:226-253`):
+  - On Books page → opens Add Book modal directly, sets `autoScan` data attribute
+  - On any other page → redirects to `/books?auto_scan=1`
+  - Listens for `hw_status_update` events to enable/disable button based on Arduino connection
+- **Auto-scan handler** (`book_rfid_scan.js:212-229`): On page load, checks for `?auto_scan=1` query param → auto-opens Add Book modal → on `shown.bs.modal`, starts `startScanListen()` (15s countdown) if Arduino is online
+- **CSS** (`style.css:1023-1030`): `.fab-scan` variant with primary blue color
+
+### 5. Complete RFID Registration Flow (End-to-End)
+```
+Click blue FAB → Add Book modal opens → "Listening..." countdown (15s)
+  → Tap RFID tag on reader → Arduino sends "RFID,<uid>" via serial
+  → SerialBridge captures (listening_for_registration mode)
+  → Socket.IO emits rfid_registration_scan
+  → Frontend fills RFID UID input → shows success state
+  → User fills Title/Author/etc. → clicks "Add Book"
+  → POST /books/add → Book saved to database
+```
+
+### 6. Session End State
+- Flask running on port 5001, SerialBridge connected on COM6
+- Arduino online with green LED (D7), red LED (D8), buzzer wired
+- All frontend pages verified (200): dashboard, books, borrow records, return records, system logs
+- All API endpoints verified: stats, device/status, hw-status, logs/recent
+- Dashboard open in browser showing live connection
+- **FAB stack**: Blue scan FAB (top) → Green HW monitor FAB → Gray terminal FAB (bottom)
+
+---
+
 ## How to Restart Services
 
 ### MySQL (not a Windows service — manual start required)
 ```powershell
-Start-Job -ScriptBlock { & "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" "--defaults-file=C:\ProgramData\MySQL\MySQL Server 8.4\my.ini" }; Start-Sleep -Seconds 8
+& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" --datadir="C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK\mysql_data"
 ```
-Verify:
+Wait ~8s, then verify:
 ```powershell
-& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -e "SHOW DATABASES;"
+& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -pebalik123 -e "SHOW DATABASES;"
 ```
 
 ### Flask Server
 ```powershell
-cd D:\eBALIK\backend
-python run.py
+cd C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK
+.\backend\venv\Scripts\activate
+python .\backend\run.py
 ```
-Flask will be available at `http://localhost:5000`
+Flask available at `http://localhost:5001`
 
 ---
 
@@ -155,17 +234,17 @@ Get-Process mysqld* | Stop-Process -Force
 
 ## Active Configuration
 
-### `D:\eBALIK\backend\.env`
+### `C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK\backend\.env`
 ```
 SECRET_KEY=ebalik-dev-secret-key-change-in-production
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=
+DB_PASSWORD=ebalik123
 DB_NAME=ebalik_db
 SERIAL_PORT=
 SERIAL_BAUD=115200
-SERIAL_ENABLED=false
+SERIAL_ENABLED=true
 DEFAULT_LOAN_DAYS=7
 DEBUG_MODE=true
 ```
@@ -173,7 +252,7 @@ DEBUG_MODE=true
 ### Database Credentials
 - Host: `127.0.0.1:3306`
 - User: `root`
-- Password: (empty)
+- Password: `ebalik123`
 - Database: `ebalik_db`
 
 ### Demo Account
@@ -203,9 +282,9 @@ DEBUG_MODE=true
 | `backend/seed_data.sql` | Demo data |
 | `backend/.env` | Active config (excluded from git) |
 | `backend/app/static/css/style.css` | Full design system (~1340 lines) |
-| `backend/app/static/js/book_rfid_scan.js` | RFID registration + duplicate state + reassign |
-| `backend/app/static/js/socket_client.js` | Socket.IO + reconnect refresh |
-| `backend/app/templates/base.html` | Sidebar + topbar layout |
+| `backend/app/static/js/book_rfid_scan.js` | RFID registration + duplicate state + reassign + auto_scan |
+| `backend/app/static/js/socket_client.js` | Socket.IO + reconnect refresh + device badge |
+| `backend/app/templates/base.html` | Sidebar + topbar layout + 3 FAB buttons (scan, hw, terminal) |
 | `arduino/eBALIK_arduino/eBALIK_arduino.ino` | Arduino firmware (~365 lines) |
 | `wokwi/eBALIK_wokwi.ino` | Wokwi-adapted firmware |
 | `wokwi/diagram.json` | Wokwi circuit |
@@ -225,7 +304,7 @@ DEBUG_MODE=true
 - **Windows console encoding**: Unicode box-drawing characters replaced with ASCII equivalents in CLI tools
 - **Flask template caching**: Templates are cached in memory — server restart needed to pick up CSS/HTML changes
 - **Only one process per COM port**: SerialBridge and hw_monitor.py cannot both be open on the same port
-- **hw_monitor.py is Windows-only**: Uses `msvcrt.kbchew()` for non-blocking input
+- **hw_monitor.py is Windows-only**: Uses `msvcrt.kbhit()` for non-blocking input
 - **Wokwi limitation**: Cannot connect to Flask backend — Arduino simulation and web dashboard tested independently
 - **CDN dependency**: Bootstrap/Socket.IO loaded from CDN in `base.html` — download locally if no wifi at demo venue
 
@@ -248,11 +327,12 @@ Requires: Python 3.11+, MySQL 8.4, Arduino Uno R3 with CH340 USB-serial.
 
 ## Next Steps
 
-1. Deploy on demo laptop — clone, setup, test with real hardware
-2. Plug in physical Arduino via USB and verify COM port auto-detection
-3. Test full return flow: scan borrowed book → VALID → servo → RETURN_SUCCESS → dashboard update
-4. Test registration flow: scan new tag → assign to book → verify binding
-5. Test reassign flow: scan tag belonging to other book → click reassign → verify UID moved
-6. Test debounce: hold tag on reader for >3s, verify only one scan processed
-7. Test reconnect: unplug/replug Arduino, verify dashboard re-syncs
-8. Download Bootstrap/Socket.IO locally if demo venue has no wifi
+1. **Upload firmware** — Install Arduino IDE, upload `arduino\eBALIK_arduino\eBALIK_arduino.ino`, install MFRC522 + LiquidCrystal I2C libs
+2. **Test hw_monitor.py** — `python backend\hw_monitor.py`, verify PING/HELLO handshake with 3.5s boot delay fix
+3. ~~Enable serial~~ — **Done** — `SERIAL_ENABLED=true` in `.env`, SerialBridge connected on COM6
+4. Test full return flow: scan borrowed book → VALID → servo → RETURN_SUCCESS → dashboard update
+5. Test registration flow via FAB button: click blue FAB → modal opens → scan tag → UID fills input → save book
+6. Test reassign flow: scan tag belonging to other book → click reassign → verify UID moved
+7. Test debounce: hold tag on reader for >3s, verify only one scan processed
+8. Test reconnect: unplug/replug Arduino, verify dashboard re-syncs
+9. Download Bootstrap/Socket.IO locally if demo venue has no wifi

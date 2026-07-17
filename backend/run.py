@@ -16,4 +16,4 @@ app = create_app()
 if __name__ == "__main__":
     # debug=False is safer once the serial thread is running, to avoid the
     # reloader spawning a second process that fights over the COM port.
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+    socketio.run(app, host="0.0.0.0", port=5001, debug=False)

@@ -101,6 +101,9 @@
 
   <!-- Floating Action Buttons -->
   <div class="fab-container fab-stack">
+    <button class="fab fab-scan" id="fab-scan-register" title="Register RFID Tag - Scan a new book">
+      <i class="bi bi-r-circle"></i>
+    </button>
     <button class="fab fab-hw" id="fab-hw-monitor" title="Hardware Monitor - Scan for Arduino">
       <i class="bi bi-usb-symbol"></i>
     </button>
@@ -204,6 +207,10 @@
         if (data.launched) {
           fabHw.innerHTML = '<i class="bi bi-check-lg"></i>';
           setTimeout(() => { fabHw.innerHTML = '<i class="bi bi-usb-symbol"></i>'; }, 1500);
+        } else if (data.connected) {
+          fabHw.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
+          fabHw.title = 'Arduino already connected via dashboard';
+          setTimeout(() => { fabHw.innerHTML = '<i class="bi bi-usb-symbol"></i>'; fabHw.title = 'Hardware Monitor - Scan for Arduino'; }, 2500);
         } else {
           fabHw.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
           setTimeout(() => { fabHw.innerHTML = '<i class="bi bi-usb-symbol"></i>'; }, 2000);
@@ -213,6 +220,35 @@
         setTimeout(() => { fabHw.innerHTML = '<i class="bi bi-usb-symbol"></i>'; }, 2000);
       }
       fabHw.disabled = false;
+    });
+  }
+
+  // FAB: Scan to Register RFID Tag
+  const fabScan = document.getElementById('fab-scan-register');
+  if (fabScan) {
+    const badge = document.getElementById('device-status-badge');
+    const isOnline = badge && badge.classList.contains('bg-success');
+    if (!isOnline) {
+      fabScan.disabled = true;
+      fabScan.title = 'Connect Arduino first';
+    }
+    fabScan.addEventListener('click', () => {
+      const onBooksPage = window.location.pathname.indexOf('/books') !== -1;
+      if (onBooksPage) {
+        const modal = document.getElementById('addBookModal');
+        if (modal) {
+          const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
+          bsModal.show();
+          modal.dataset.autoScan = '1';
+        }
+      } else {
+        window.location.href = '/books?auto_scan=1';
+      }
+    });
+    window.addEventListener('ebalik:hw_status_update', (e) => {
+      const online = e.detail.connected;
+      fabScan.disabled = !online;
+      fabScan.title = online ? 'Register RFID Tag - Scan a new book' : 'Connect Arduino first';
     });
   }
 </script>

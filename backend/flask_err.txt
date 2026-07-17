@@ -1,4 +1,1 @@
-  File "<string>", line 1
-    import
-          ^
-SyntaxError: Expected one or more names after 'import'
+C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK\backend\venv\Scripts\python.exe: can't open file 'C:\\Users\\Renato': [Errno 2] No such file or directory

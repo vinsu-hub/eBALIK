@@ -208,3 +208,22 @@ window.addEventListener("ebalik:rfid_registration_timeout", () => {
     setScanState("timeout");
   }
 });
+
+if (addBookModal && new URLSearchParams(window.location.search).get("auto_scan") === "1") {
+  const bsModal = bootstrap.Modal.getOrCreateInstance(addBookModal);
+  bsModal.show();
+  addBookModal.dataset.autoScan = "1";
+  window.history.replaceState({}, "", window.location.pathname);
+}
+
+if (addBookModal) {
+  addBookModal.addEventListener("shown.bs.modal", function () {
+    if (addBookModal.dataset.autoScan === "1") {
+      delete addBookModal.dataset.autoScan;
+      const badge = document.getElementById("device-status-badge");
+      if (badge && badge.classList.contains("bg-success")) {
+        startScanListen();
+      }
+    }
+  });
+}
