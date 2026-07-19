@@ -2,7 +2,7 @@
 
 > **Platform:** Arduino Uno R3 (CH340 clone)
 > **Firmware:** `arduino/eBALIK_arduino/eBALIK_arduino.ino`
-> **Last updated:** 2026-07-14
+> **Last updated:** 2026-07-19
 
 This guide covers every physical connection between the Arduino Uno R3 and
 all peripherals. Follow it pin-by-pin. Each component section includes the
@@ -59,8 +59,8 @@ connection does.
   +-----------------------+    +-----------------------+
   | A0  (free)            |    | D0  (RX)   [free]    |
   | A1  (free)            |    | D1  (TX)   [free]    |
-  | A2  (free)            |    | D2  IR_ENTRANCE      |
-  | A3  (free)            |    | D3  IR_FULL_ENTRY    |
+   | A2  (free)            |    | D2  IR_FULL_ENTRY    |
+   | A3  (free)            |    | D3  IR_ENTRANCE      |
   | A4  SDA  [I2C LCD]    |    | D4  (free — was IR_OBSTRUCTION) |
   | A5  SCL  [I2C LCD]    |    | D5  BUZZER           |
   +-----------------------+    | D6  SERVO            |
@@ -175,8 +175,8 @@ an obstacle is detected (the default for most Chinese IR obstacle modules).
 
 | Sensor | Arduino Pin | Wire Color | Firmware Constant | Function |
 |--------|-------------|------------|-------------------|----------|
-| IR1 — Entrance | **D2** | Brown | `IR_ENTRANCE_PIN` | Detects book entering the slot |
-| IR2 — Full Entry | **D3** | Brown | `IR_FULL_ENTRY_PIN` | Confirms book fully inside |
+| IR1 — Entrance (upper slot) | **D3** | Brown | `IR_ENTRANCE_PIN` | Detects book entering the slot (1s debounce) |
+| IR2 — Full Entry (bottom) | **D2** | Brown | `IR_FULL_ENTRY_PIN` | Confirms book reached storage (single trigger) |
 
 > **Removed:** The previous Safety Obstruction sensor (IR3 on D4) has been
 > removed. Pin D4 is now free. A timed `STATE_CLOSING_WARNING` (2s, double
@@ -449,8 +449,8 @@ what it controls.
 | `RFID_SS_PIN` | 10 | D10 | MFRC522 SPI chip select |
 | `RFID_RST_PIN` | 9 | D9 | MFRC522 reset |
 | `SERVO_PIN` | 6 | D6 | SG90 servo signal |
-| `IR_ENTRANCE_PIN` | 2 | D2 | IR sensor 1 (entrance) |
-| `IR_FULL_ENTRY_PIN` | 3 | D3 | IR sensor 2 (full entry) |
+| `IR_ENTRANCE_PIN` | 3 | D3 | IR sensor (entrance, upper slot) |
+| `IR_FULL_ENTRY_PIN` | 2 | D2 | IR sensor (full entry, bottom) |
 | `IR_OBSTRUCTION_PIN` | 4 | D4 | *(removed — pin now free)* |
 | `BUZZER_PIN` | 5 | D5 | Active buzzer |
 | `LED_GREEN_PIN` | 7 | D7 | Green LED (approved) |
@@ -563,8 +563,8 @@ what it controls.
 - [ ] Arduino Uno R3 placed inside the box, USB port accessible
 - [ ] RC522 connected via SPI (pins 9, 10, 11, 12, 13) + **3.3V** + GND
 - [ ] Servo connected to D6 + 5V + GND; servo linkage attached to door flap
-- [ ] IR Sensor 1 (Entrance) connected to D2 + 5V + GND
-- [ ] IR Sensor 2 (Full Entry) connected to D3 + 5V + GND
+- [ ] IR Sensor (Entrance, upper slot) connected to D3 + 5V + GND
+- [ ] IR Sensor (Full Entry, bottom) connected to D2 + 5V + GND
 - [ ] D4 left free (previously used for Safety Obstruction sensor — removed)
 - [ ] Buzzer connected to D5 + GND
 - [ ] Green LED connected to D7 through 220Ω resistor to GND

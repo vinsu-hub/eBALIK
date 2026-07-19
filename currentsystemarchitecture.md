@@ -1,10 +1,11 @@
 # eBALIK — Current System Architecture
 
-> Last updated: 2026-07-18
+> Last updated: 2026-07-19
 > Covers hardware, firmware, backend, frontend, serial protocol, data flow,
 > CH340 integration, RFID tag registration, system hardening
 > (UID validation, INVALID reason field, debounce, reconnect, DEBUG_MODE gating),
-> and safety sensor removal (2-sensor + timed closing warning).
+> safety sensor removal (2-sensor + timed closing warning),
+> and IR sensor pin swap + debounce fixes (Session 6).
 
 ---
 
@@ -61,8 +62,8 @@ time via Socket.IO.
 | RFID Reader | RC522, 13.56 MHz (SPI) | Reads RFID tag UIDs |
 | RFID Tags | 13.56 MHz sticker/card | Unique ID per book |
 | Servo Motor | SG90, 5V | Door flap: opens to accept book, closes after insertion |
-| IR Sensor (Entrance) | Obstacle sensor | Detects book entering slot |
-| IR Sensor (Full Entry) | Obstacle sensor | Confirms full insertion |
+| IR Sensor (Entrance, upper slot) | Obstacle sensor | Detects book entering slot (D3, 1s debounce) |
+| IR Sensor (Full Entry, bottom) | Obstacle sensor | Confirms book reached storage (D2, single trigger) |
 | LCD Display | 16x2, I2C (addr 0x27) | User feedback messages |
 | Buzzer | Active, 5V | Audible confirmation/alerts |
 | Green LED | 5mm, with 220Ω resistor | Visual: return approved (pin D7) |
@@ -74,10 +75,10 @@ time via Socket.IO.
 |-------------|-----------|-------|
 | SS=10, RST=9 | MFRC522 RFID | SPI bus |
 | 6 | SG90 Servo | PWM signal |
-| 2 | IR Sensor 1 (Entrance) | Active LOW |
-| 3 | IR Sensor 2 (Full Entry) | Active LOW |
+| 2 | IR Sensor 2 (Full Entry, bottom compartment) | Active LOW, single trigger |
+| 3 | IR Sensor 1 (Entrance, upper slot) | Active LOW, 1s debounce |
 | 4 | *(free — previously IR Obstruction)* | — |
-| 5 | Active Buzzer | Digital HIGH = on |
+| 5 | Active Buzzer | Digital HIGH = on (currently disconnected — noise coupling) |
 | 7 | Green LED | Return approved indicator (220Ω to GND) |
 | 8 | Red LED | Return rejected indicator (220Ω to GND) |
 | A4 (SDA), A5 (SCL) | I2C LCD | Address 0x27 |
@@ -129,10 +130,14 @@ except `IR_ACTIVE_STATE = HIGH` (pushbuttons replace IR sensors) and adds a
 
 **Timeouts:**
 - AWAITING_VALIDATION: 5s → ERROR_DISPLAY
-- SLOT_OPEN: 15s → IDLE (no entry detected)
+- AWAITING_ENTRANCE: 15s → IDLE (no entry detected)
 - AWAIT_FULL_ENTRY: 8s → IDLE
 - CLOSING_WARNING: 2s (non-blocking, then transitions to CLOSING)
 - RFID debounce: 3s cooldown on same UID after scan (prevents duplicate scans)
+
+**IR Sensor Debounce:**
+- Entrance (D3): Must stay LOW continuously for 1 second before ENTRANCE_DETECTED fires (filters servo vibration, hand movement)
+- Full Entry (D2): Single LOW pulse triggers FULL_ENTRY immediately (no debounce — book already confirmed past entrance)
 
 ---
 

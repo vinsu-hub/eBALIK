@@ -1,6 +1,6 @@
 # eBALIK Session Handoff
 
-**Last updated:** 2026-07-18
+**Last updated:** 2026-07-19
 **Platform:** Windows (PowerShell), Python 3.13.14
 
 ---
@@ -196,7 +196,7 @@ Click blue FAB → Add Book modal opens → "Listening..." countdown (15s)
 
 ### MySQL (not a Windows service — manual start required)
 ```powershell
-& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" --datadir="C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK\mysql_data"
+& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" --datadir="C:\Users\huawei\eBALIK\mysql_data"
 ```
 Wait ~8s, then verify:
 ```powershell
@@ -205,9 +205,8 @@ Wait ~8s, then verify:
 
 ### Flask Server
 ```powershell
-cd C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK
-.\backend\venv\Scripts\activate
-python .\backend\run.py
+cd C:\Users\huawei\eBALIK\backend
+.\venv\Scripts\python.exe run.py
 ```
 Flask available at `http://localhost:5001`
 
@@ -217,26 +216,21 @@ Flask available at `http://localhost:5001`
 
 ### Flask
 ```powershell
-Get-Process python* | Where-Object { $_.Id -eq (Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue).OwningProcess } | Stop-Process -Force
+Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force
 ```
-Or simply close the terminal window running Flask.
 
 ### MySQL
 ```powershell
-& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -e "SHUTDOWN;"
-```
-Or kill the mysqld process:
-```powershell
-Get-Process mysqld* | Stop-Process -Force
+Get-Process mysqld* -ErrorAction SilentlyContinue | Stop-Process -Force
 ```
 
 ---
 
 ## Active Configuration
 
-### `C:\Users\Renato Cabahug\Documents\Queen Lee\eBALIK\eBALIK\backend\.env`
+### `C:\Users\huawei\eBALIK\backend\.env`
 ```
-SECRET_KEY=ebalik-dev-secret-key-change-in-production
+SECRET_KEY=ebalik-dev-secret-key-2026
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
@@ -285,7 +279,7 @@ DEBUG_MODE=true
 | `backend/app/static/js/book_rfid_scan.js` | RFID registration + duplicate state + reassign + auto_scan |
 | `backend/app/static/js/socket_client.js` | Socket.IO + reconnect refresh + device badge |
 | `backend/app/templates/base.html` | Sidebar + topbar layout + 3 FAB buttons (scan, hw, terminal) |
-| `arduino/eBALIK_arduino/eBALIK_arduino.ino` | Arduino firmware (~365 lines) |
+| `arduino/eBALIK_arduino/eBALIK_arduino.ino` | Arduino firmware (~490 lines, pin swap + IR debug + debounce) |
 | `wokwi/eBALIK_wokwi.ino` | Wokwi-adapted firmware |
 | `wokwi/diagram.json` | Wokwi circuit |
 | `TOOLS/install_ch340_driver.bat` | CH340 driver installer |
@@ -327,15 +321,16 @@ Requires: Python 3.11+, MySQL 8.4, Arduino Uno R3 with CH340 USB-serial.
 
 ## Next Steps
 
-1. **Upload firmware** — Install Arduino IDE, upload `arduino\eBALIK_arduino\eBALIK_arduino.ino`, install MFRC522 + LiquidCrystal I2C libs
-2. **Test hw_monitor.py** — `python backend\hw_monitor.py`, verify PING/HELLO handshake with 3.5s boot delay fix
-3. ~~Enable serial~~ — **Done** — `SERIAL_ENABLED=true` in `.env`, SerialBridge connected on COM6
-4. Test full return flow: scan borrowed book → VALID → servo → RETURN_SUCCESS → dashboard update
-5. Test registration flow via FAB button: click blue FAB → modal opens → scan tag → UID fills input → save book
-6. Test reassign flow: scan tag belonging to other book → click reassign → verify UID moved
-7. Test debounce: hold tag on reader for >3s, verify only one scan processed
-8. Test reconnect: unplug/replug Arduino, verify dashboard re-syncs
-9. Download Bootstrap/Socket.IO locally if demo venue has no wifi
+1. ~~Upload firmware~~ — **Done** — `arduino-cli` on COM4, all libraries installed
+2. ~~Enable serial~~ — **Done** — `SERIAL_ENABLED=true` in `.env`, SerialBridge connected on COM4
+3. ~~Test full return flow~~ — **Done** — scan → VALID → servo opens → entrance debounce → full entry → closing warning → servo closes → RETURN_SUCCESS → dashboard update
+4. ~~Fix IR sensor pin swap~~ — **Done** — D3=entrance, D2=bottom, matching physical wiring
+5. ~~Fix IR debounce~~ — **Done** — 1s entrance debounce, instant full-entry trigger
+6. **Disconnect buzzer** — temporarily removed due to servo PWM noise coupling. Re-add with proper decoupling capacitor or move to different pin.
+7. **Test registration flow** via FAB button: click blue FAB → modal opens → scan tag → UID fills input → save book
+8. **Test reassign flow**: scan tag belonging to other book → click reassign → verify UID moved
+9. **Demo prep** — Download Bootstrap/Socket.IO locally if demo venue has no wifi
+10. **Test hardware without PC** — verify Arduino runs independently if USB disconnected
 
 ---
 
@@ -434,3 +429,80 @@ Fixed `localhost:5000` → `localhost:5001` in three standalone scripts:
 ### 8. Files Created This Session
 - `PROJECT_CURRENT_STATE.md` — full project state snapshot
 - `arduino/servo_calibration/servo_calibration.ino` — standalone servo test sketch
+
+---
+
+## Session 6 — 2026-07-19 (IR Sensor Debug, Pin Swap, Return Flow Fix)
+
+### 1. IR Sensor Debug & Pin Swap
+**Problem:** After VALID → gate opens, both IR sensors triggered immediately (reading LOW) without a book present, causing the gate to close in ~2-3 seconds.
+
+**Root cause:** The IR pin assignments were swapped relative to the physical wiring.
+- D2 (physical bottom sensor) was assigned as `IR_ENTRANCE_PIN`
+- D3 (physical upper/entrance sensor) was assigned as `IR_FULL_ENTRY_PIN`
+
+This meant the firmware waited for the **bottom** sensor first (which never triggered at the entrance), then the **entrance** sensor second (which had already passed).
+
+**Fix:** Swapped pin definitions in firmware:
+```cpp
+#define IR_ENTRANCE_PIN 3    // D3 — upper slot entrance (book passes here FIRST)
+#define IR_FULL_ENTRY_PIN 2  // D2 — bottom of compartment (book reaches here SECOND)
+```
+
+### 2. IR Sensor Behavior Changes
+**Problem 1 — Entrance sensor (D3):** Both sensors were picking up the compartment structure itself (reflections from box walls), causing false triggers immediately after gate opened.
+
+**Fix:** Added 1-second debounce on entrance sensor — `IR_ENTRANCE_PIN` must stay LOW continuously for 1 second before `STATUS,ENTRANCE_DETECTED` fires. This filters momentary reflections from servo vibration or hand movement.
+
+**Problem 2 — Full entry sensor (D2):** The book slides down the slope fast and only momentarily triggers the bottom sensor. The original 2-second continuous LOW requirement never accumulated because IR sensors flicker with fast-moving objects.
+
+**Fix:** Changed full entry detection from "stay LOW for 2 seconds" to **single trigger** — one momentary LOW pulse on `IR_FULL_ENTRY_PIN` immediately fires `STATUS,FULL_ENTRY`. Since we're already inside `STATE_AWAIT_FULL_ENTRY` (book already passed entrance), noise risk is minimal.
+
+### 3. Servo Opens on VALID
+Added `returnSlotServo.write(SERVO_OPEN_ANGLE)` to the VALID handler in firmware. The gate flap now opens immediately when the book is validated, so the user can insert the book. Previously the servo only opened on entrance IR detection.
+
+### 4. IR Debug Output
+Added serial debug prints to all three IR-related states:
+- `IR_IDLE` — prints D2/D3 values every 3 seconds in IDLE state
+- `IR_DEBUG` — prints D2/D3 + triggered status every 1 second in AWAITING_ENTRANCE and AWAIT_FULL_ENTRY states
+- Labels show `P3(entr)=` and `P2(full)=` matching actual Arduino pin numbers
+
+### 5. Buzzer Disconnected
+Buzzer was physically removed from the circuit due to continuous beeping caused by noise coupling from the servo PWM signal on adjacent pins (D5/D6).
+
+### 6. Key Firmware Logic (Final Version)
+
+**Return flow:**
+1. VALID → servo opens gate immediately → STATE_AWAITING_ENTRANCE
+2. Entrance IR (D3) must stay LOW for 1s continuously → ENTRANCE_DETECTED → STATE_AWAIT_FULL_ENTRY
+3. Full entry IR (D2) single LOW pulse → FULL_ENTRY → STATE_CLOSING_WARNING
+4. 2-second warning (double beep) → STATE_CLOSING
+5. Servo closes → RETURN_SUCCESS → back to IDLE
+
+### 7. Files Changed This Session
+- `arduino/eBALIK_arduino/eBALIK_arduino.ino` — pin swap, IR debounce, instant full-entry trigger, servo on VALID, debug output
+- `CURRENT_SYSTEM_CONTEXT.md` — full system context documentation (created)
+- All MD files updated to reflect session 6 changes
+
+### 8. Git Push
+Committed and pushed to `https://github.com/vinsu-hub/eBALIK.git`:
+- Commit `dedcd7a` — "Session 6: fix IR sensor logic, swap pins to match wiring, add debug output, entrance debounce, instant full-entry trigger"
+
+### 9. Key System State at End of Session
+
+| Component | Status |
+|-----------|--------|
+| MySQL | Running (port 3306), root/ebalik123 |
+| Flask + Socket.IO | Running (port 5001) |
+| SerialBridge | Auto-started in Flask, COM4 |
+| Arduino | Firmware uploaded (COM4), pin swap applied |
+| Dashboard | http://localhost:5001, admin/admin123 |
+
+**Books with active borrows:**
+| RFID UID | Book | Borrower |
+|----------|------|----------|
+| 04A1B2C3 | Data Structures and Algorithms | Juan Dela Cruz |
+| 04D4E5F6 | Operating System Concepts | Maria Santos |
+| 04A3B4C5 | Database System Concepts | Pedro Reyes |
+
+**Do NOT start `hw_monitor.py`** — it conflicts with SerialBridge for COM4.

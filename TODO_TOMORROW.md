@@ -1,19 +1,34 @@
-# eBALIK — Tomorrow's To-Do
+# eBALIK — Next Session To-Do
 
-## 1. Upload Arduino firmware
-- Install Arduino IDE from https://www.arduino.cc/en/software
-- Open `arduino\eBALIK_arduino\eBALIK_arduino.ino`
-- Install libraries: **MFRC522**, **LiquidCrystal I2C** (via Sketch → Include Library → Manage Libraries)
-- Select board: **Arduino Uno R3**, port: **COM5**
-- Click **Upload**
+## 1. Reconnect Buzzer (Priority)
+- Buzzer was disconnected due to servo PWM noise coupling on adjacent pins (D5/D6)
+- Options: add decoupling capacitor (100nF ceramic across VCC/GND near buzzer), move buzzer to a different pin, or use `noTone()` to silence between pulses
+- Test: upload firmware with buzzer enabled, verify clean operation
 
-## 2. Test hardware monitor
-- Run `python hw_monitor.py`
-- PING/HELLO handshake should work now (3.5s boot delay + retry logic applied)
-- If still no HELLO → lower `BOOT_DELAY` from 3.5 to 2.5 in `hw_monitor.py` line 52
-- If HELLO works → verify live monitor loop and keyboard input (`kbhit()` fix) don't crash
+## 2. Test Full Return Flow (End-to-End)
+- Scan a borrowed book tag → VALID → gate opens → hold at entrance (D3) for 1s → book slides down past D2 → closing warning → gate closes → RETURN_SUCCESS
+- Verify dashboard updates live (book status changes from "borrowed" to "available")
 
-## 3. Enable Arduino in Flask
-- Set `SERIAL_ENABLED=true` in `backend\.env`
-- Restart Flask: `python backend\run.py` (serving on port 5001)
-- Dashboard should show "Connected" badge
+## 3. Test Registration Flow via FAB Button
+- Click blue RFID scan FAB → Add Book modal opens → scan tag → UID fills input → save book
+- Verify book appears in catalog
+
+## 4. Test Reassign Flow
+- Scan tag belonging to other book → click reassign → verify UID moved
+- Verify original book no longer has that UID
+
+## 5. Test Reconnect Behavior
+- Unplug/replug Arduino → verify SerialBridge reconnects automatically
+- Verify dashboard badge flips red → green
+
+## 6. Test Debounce
+- Hold same tag on reader for >3s → verify only one scan processed
+
+## 7. Demo Prep
+- Download Bootstrap/Socket.IO locally if demo venue has no WiFi
+- Test all pages: dashboard, books, borrow records, return records, system logs
+
+## 8. Future Improvements (If Time Permits)
+- Add safety obstruction sensor back (pin D4 available) for verified clearance
+- Add book count sensor to verify storage capacity
+- Add LCD custom icons for return status

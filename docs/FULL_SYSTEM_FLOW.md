@@ -74,7 +74,7 @@ STATE_AWAITING_ENTRANCE → STATE_AWAIT_FULL_ENTRY
 ```
 
 17. Patron slides the book into the return slot
-18. Entrance IR sensor (pin D2) detects the book
+18. Entrance IR sensor (pin D3, upper slot) detects the book — must stay LOW for 1s continuously
 19. Arduino sends `STATUS,ENTRANCE_DETECTED` to PC
 20. Servo **opens** the door flap: 10 degrees → 80 degrees
 21. LCD displays: "Book detected / Keep pushing..."
@@ -86,7 +86,7 @@ STATE_AWAITING_ENTRANCE → STATE_AWAIT_FULL_ENTRY
 STATE_AWAIT_FULL_ENTRY → STATE_CLOSING_WARNING
 ```
 
-23. Full entry IR sensor (pin D3) detects the book is fully inside
+23. Full entry IR sensor (pin D2, bottom compartment) detects the book — single trigger
 24. Arduino sends `STATUS,FULL_ENTRY` to PC
 25. LCD displays: "Book received! Closing shortly"
 26. First closing warning beep plays (double pulse at 1200 Hz)
@@ -319,8 +319,8 @@ All invalid scans:
 |-----------|-----|-------|
 | MFRC522 RFID Reader | SS=10, RST=9, SCK=13, MOSI=11, MISO=12 | SPI bus |
 | SG90 Servo Motor | D6 | 10 deg closed, 80 deg open |
-| IR Sensor — Entrance | D2 | Active LOW |
-| IR Sensor — Full Entry | D3 | Active LOW |
+| IR Sensor — Entrance (upper slot) | D3 | Active LOW, 1s debounce |
+| IR Sensor — Full Entry (bottom) | D2 | Active LOW, single trigger |
 | Active Buzzer | D5 | Multiple frequencies for different cues |
 | Green LED | D7 | Return approved / success |
 | Red LED | D8 | Return rejected / error |

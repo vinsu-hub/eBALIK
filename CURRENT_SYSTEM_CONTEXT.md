@@ -1,7 +1,7 @@
 # eBALIK — Current System Context
 
 > Last updated: 2026-07-19
-> Firmware: v1.1 (servo opens on VALID)
+> Firmware: v1.2 (IR pin swap, entrance debounce, instant full-entry trigger)
 > Covers complete demo flow end-to-end: startup, scan, validation, gate open, IR sensors, closing, database update, dashboard live refresh.
 
 ---
@@ -58,19 +58,20 @@
 3. `blinkGreen()` → green LED on D7 blinks (300ms)
 4. `beepApproved()` → buzzer: 1800 Hz, 100ms chirp
 5. LCD: `"Book approved / Insert when ready"`
-6. **`returnSlotServo.write(80)`** → gate flap **OPENS**
+6. **`returnSlotServo.write(80)`** → gate flap **OPENS immediately**
 7. `currentState = STATE_AWAITING_ENTRANCE` (15-second timeout starts)
 
 ---
 
 ### Phase 3 — Book Enters Slot (IR1 Triggers)
 
-**Arduino** (main `loop()`, `eBALIK_arduino.ino:161`):
-1. `irTriggered(IR_ENTRANCE_PIN)` → reads pin D2, checks if == `LOW` (active state)
-2. Book is physically passing the entrance IR sensor → D2 goes LOW → returns true
-3. `Serial.println("STATUS,ENTRANCE_DETECTED")` → sent to Flask
-4. LCD: `"Book detected / Keep pushing..."`
-5. `currentState = STATE_AWAIT_FULL_ENTRY` (8-second timeout starts)
+**Arduino** (main `loop()`, `eBALIK_arduino.ino:169`):
+1. `irTriggered(IR_ENTRANCE_PIN)` → reads **pin D3** (upper slot entrance), checks if == `LOW`
+2. Book is physically passing the entrance IR sensor → D3 goes LOW
+3. **1-second debounce**: sensor must stay LOW continuously for 1 second (filters servo vibration, hand movement)
+4. After 1s confirmed: `Serial.println("STATUS,ENTRANCE_DETECTED")` → sent to Flask
+5. LCD: `"Book detected / Keep pushing..."`
+6. `currentState = STATE_AWAIT_FULL_ENTRY` (8-second timeout starts)
 
 **SerialBridge** (`serial_reader.py:171`):
 1. Parses `"STATUS,ENTRANCE_DETECTED"`
@@ -80,14 +81,15 @@
 
 ### Phase 4 — Book Lands in Storage (IR2 Triggers)
 
-**Arduino** (main `loop()`, `eBALIK_arduino.ino:175`):
-1. `irTriggered(IR_FULL_ENTRY_PIN)` → reads pin D3, checks if == `LOW`
-2. Book has fallen into the storage area → D3 goes LOW → returns true
-3. `Serial.println("STATUS,FULL_ENTRY")` → sent to Flask
-4. LCD: `"Book received! / Closing shortly"`
-5. `beepClosingPulse()` → two beeps at 1200 Hz (first closing warning)
-6. `closingPulse2Fired = false`
-7. `currentState = STATE_CLOSING_WARNING` (2-second timer starts)
+**Arduino** (main `loop()`, `eBALIK_arduino.ino:199`):
+1. `irTriggered(IR_FULL_ENTRY_PIN)` → reads **pin D2** (bottom compartment), checks if == `LOW`
+2. Book slides down the slope past the bottom sensor → D2 goes LOW momentarily
+3. **Single trigger**: one LOW pulse is sufficient (no debounce — book already confirmed past entrance)
+4. Immediately: `Serial.println("STATUS,FULL_ENTRY")` → sent to Flask
+5. LCD: `"Book received! / Closing shortly"`
+6. `beepClosingPulse()` → two beeps at 1200 Hz (first closing warning)
+7. `closingPulse2Fired = false`
+8. `currentState = STATE_CLOSING_WARNING` (2-second timer starts)
 
 **SerialBridge** (`serial_reader.py:171`):
 1. `socketio.emit("hardware_status", {status: "FULL_ENTRY"})` → dashboard updates
@@ -247,8 +249,8 @@ STATE_IDLE ──(RFID scanned)──> STATE_AWAITING_VALIDATION
 
 | Pin | Component | Direction |
 |-----|-----------|-----------|
-| D2 | IR Sensor 1 (Entrance) | INPUT |
-| D3 | IR Sensor 2 (Full Entry) | INPUT |
+| D2 | IR Sensor 2 (Full Entry, bottom compartment) | INPUT |
+| D3 | IR Sensor 1 (Entrance, upper slot) | INPUT |
 | D4 | *(free — previously safety obstruction)* | — |
 | D5 | Active Buzzer | OUTPUT |
 | D6 | SG90 Servo (gate flap) | OUTPUT (PWM) |
@@ -308,7 +310,7 @@ Calibrated: 2026-07-18. Mechanism: **door flap / gate flap**.
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | MCU | Arduino Uno R3 (CH340) | ATmega328P |
-| Firmware | Arduino C++ | v1.1 |
+| Firmware | Arduino C++ | v1.2 |
 | Web Framework | Flask | 3.0.3 |
 | ORM | Flask-SQLAlchemy | 3.1.1 |
 | Auth | Flask-Login | 0.6.3 |
@@ -336,7 +338,7 @@ system_logs    → log_id, event_type, source, message, rfid_uid, created_at
 
 | File | Purpose |
 |------|---------|
-| `arduino/eBALIK_arduino/eBALIK_arduino.ino` | Arduino firmware (436 lines) |
+| `arduino/eBALIK_arduino/eBALIK_arduino.ino` | Arduino firmware (~490 lines) |
 | `backend/run.py` | Flask entry point (port 5001) |
 | `backend/app/__init__.py` | App factory + blueprint registration |
 | `backend/app/extensions.py` | db, login_manager, socketio singletons |
