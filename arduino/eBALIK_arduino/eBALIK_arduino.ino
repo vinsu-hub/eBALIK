@@ -63,8 +63,8 @@
 #define RFID_SS_PIN 10
 #define RFID_RST_PIN 9
 #define SERVO_PIN 6
-#define IR_ENTRANCE_PIN 2
-#define IR_FULL_ENTRY_PIN 3
+#define IR_ENTRANCE_PIN 3    // D3 — upper slot entrance (book passes here FIRST)
+#define IR_FULL_ENTRY_PIN 2  // D2 — bottom of compartment (book reaches here SECOND)
 #define BUZZER_PIN 5
 #define LED_GREEN_PIN 7
 #define LED_RED_PIN 8
@@ -145,9 +145,20 @@ void loop() {
   readSerialCommands();
 
   switch (currentState) {
-  case STATE_IDLE:
+  case STATE_IDLE: {
+    static unsigned long lastIdleDebug = 0;
+    if (millis() - lastIdleDebug > 3000) {
+      int d2 = digitalRead(IR_ENTRANCE_PIN);
+      int d3 = digitalRead(IR_FULL_ENTRY_PIN);
+      Serial.print("IR_IDLE D2=");
+      Serial.print(d2 == LOW ? "LOW" : "HIGH");
+      Serial.print(" D3=");
+      Serial.println(d3 == LOW ? "LOW" : "HIGH");
+      lastIdleDebug = millis();
+    }
     pollForCard();
     break;
+  }
 
   case STATE_AWAITING_VALIDATION:
     if (millis() - stateEnteredAt > RFID_VALIDATION_TIMEOUT) {
@@ -158,22 +169,57 @@ void loop() {
     }
     break;
 
-  case STATE_AWAITING_ENTRANCE:
+  case STATE_AWAITING_ENTRANCE: {
+    static unsigned long lastIRDebug = 0;
+    static unsigned long entranceTriggeredAt = 0;
+    if (millis() - lastIRDebug > 1000) {
+      int entrVal = digitalRead(IR_ENTRANCE_PIN);
+      int fullVal = digitalRead(IR_FULL_ENTRY_PIN);
+      Serial.print("IR_DEBUG P3(entr)=");
+      Serial.print(entrVal == LOW ? "LOW" : "HIGH");
+      Serial.print(" P2(full)=");
+      Serial.print(fullVal == LOW ? "LOW" : "HIGH");
+      Serial.print(" triggered=");
+      Serial.println(irTriggered(IR_ENTRANCE_PIN) ? "YES" : "NO");
+      lastIRDebug = millis();
+    }
     if (irTriggered(IR_ENTRANCE_PIN)) {
-      Serial.println("STATUS,ENTRANCE_DETECTED");
-      returnSlotServo.write(SERVO_OPEN_ANGLE);
-      showMessage("Book detected", "Keep pushing...");
-      currentState = STATE_AWAIT_FULL_ENTRY;
-      stateEnteredAt = millis();
-    } else if (millis() - stateEnteredAt > INSERT_TIMEOUT) {
+      if (entranceTriggeredAt == 0) {
+        entranceTriggeredAt = millis();
+      }
+      if (millis() - entranceTriggeredAt > 1000) {
+        Serial.println("STATUS,ENTRANCE_DETECTED");
+        showMessage("Book detected", "Keep pushing...");
+        currentState = STATE_AWAIT_FULL_ENTRY;
+        stateEnteredAt = millis();
+        entranceTriggeredAt = 0;
+      }
+    } else {
+      entranceTriggeredAt = 0;
+    }
+    if (millis() - stateEnteredAt > INSERT_TIMEOUT) {
       showError("Timeout", "No book inserted");
       blinkRed();
       sendReturnFailed(pendingUID, "INSERT_TIMEOUT");
       closeSlotAndReset();
+      entranceTriggeredAt = 0;
     }
     break;
+  }
 
-  case STATE_AWAIT_FULL_ENTRY:
+  case STATE_AWAIT_FULL_ENTRY: {
+    static unsigned long lastIRDebug2 = 0;
+    if (millis() - lastIRDebug2 > 1000) {
+      int entrVal = digitalRead(IR_ENTRANCE_PIN);
+      int fullVal = digitalRead(IR_FULL_ENTRY_PIN);
+      Serial.print("IR_DEBUG P3(entr)=");
+      Serial.print(entrVal == LOW ? "LOW" : "HIGH");
+      Serial.print(" P2(full)=");
+      Serial.print(fullVal == LOW ? "LOW" : "HIGH");
+      Serial.print(" triggered=");
+      Serial.println(irTriggered(IR_FULL_ENTRY_PIN) ? "YES" : "NO");
+      lastIRDebug2 = millis();
+    }
     if (irTriggered(IR_FULL_ENTRY_PIN)) {
       Serial.println("STATUS,FULL_ENTRY");
       showMessage("Book received!", "Closing shortly");
@@ -188,13 +234,11 @@ void loop() {
       closeSlotAndReset();
     }
     break;
+  }
 
   case STATE_CLOSING_WARNING: {
-    // Non-blocking: still services serial commands and stays responsive
-    // for the full warning window instead of freezing execution.
     unsigned long elapsed = millis() - stateEnteredAt;
 
-    // Second pulse partway through the warning window, fires once.
     if (!closingPulse2Fired && elapsed > (CLOSE_WARNING_MS / 2)) {
       beepClosingPulse();
       closingPulse2Fired = true;
@@ -218,7 +262,6 @@ void loop() {
     break;
 
   case STATE_ERROR_DISPLAY:
-    // handled via goIdleAfterDelay() calls
     break;
   }
 }
@@ -306,6 +349,7 @@ void handleCommand(String line) {
     blinkGreen();
     beepApproved();
     showMessage("Book approved", "Insert when ready");
+    returnSlotServo.write(SERVO_OPEN_ANGLE);
     currentState = STATE_AWAITING_ENTRANCE;
     stateEnteredAt = millis();
   } else if (cmd == "INVALID") {
