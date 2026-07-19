@@ -1,7 +1,7 @@
 # eBALIK — Book Automated Library Inventory Keeper
 
 An RFID-based automated book return station: Arduino Uno R3 handles the
-physical hardware (RFID reader, servo-controlled slot, IR sensors, LCD,
+physical hardware (RFID reader, door flap mechanism, 2 IR sensors, LCD,
 buzzer), and talks over USB Serial to a local Flask + MySQL web dashboard
 that librarians use to manage the catalog and watch returns happen live.
 
@@ -90,9 +90,9 @@ See `docs/PROTOCOL.md` for the full serial message spec. Short version:
 1. Arduino scans a tag → sends `RFID,<uid>` over serial.
 2. Flask looks up the book, checks it has an open borrow record, replies
    `VALID,<uid>` or `INVALID,<uid>`.
-3. Arduino opens the servo, watches its 3 IR sensors (entrance → full
-   entry → obstruction-clear), then closes the slot and sends
-   `RETURN_SUCCESS,<uid>`.
+3. Arduino opens the door flap, watches its 2 IR sensors (entrance → full
+   entry), then shows a closing warning (2s, double beep) and closes the
+   door flap, sending `RETURN_SUCCESS,<uid>`.
 4. Flask marks the borrow record returned, logs a `return_records` row,
    updates the book's status, and broadcasts the event over Socket.IO so
    the dashboard updates without a refresh.

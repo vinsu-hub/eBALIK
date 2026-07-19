@@ -18,8 +18,8 @@ connection does.
 | 1 | Arduino Uno R3 | 1 | CH340 USB-serial clone | The main MCU board |
 | 2 | RFID Reader (RC522) | 1 | MFRC522, 13.56 MHz, SPI | Comes with header pins |
 | 3 | RFID Tags/Cards | 5+ | 13.56 MHz MIFARE | Sticker or card format; one per book |
-| 4 | Servo Motor | 1 | SG90, 5V | Controls the return slot gate |
-| 5 | IR Obstacle Sensor | 3 | HW-204 or similar, 3-pin | Digital output (LOW = detected) |
+| 4 | Servo Motor | 1 | SG90, 5V | Controls the return door flap |
+| 5 | IR Obstacle Sensor | 2 | HW-204 or similar, 3-pin | Digital output (LOW = detected) |
 | 6 | LCD Display | 1 | 16x2, I2C, addr 0x27 | 4-pin I2C version (VCC, GND, SDA, SCL) |
 | 7 | Active Buzzer | 1 | 5V, active (tone on HIGH) | Not passive — active buzzers self-oscillate |
 | 8 | **Green LED** | 1 | 5mm, standard | Return approved indicator |
@@ -61,7 +61,7 @@ connection does.
   | A1  (free)            |    | D1  (TX)   [free]    |
   | A2  (free)            |    | D2  IR_ENTRANCE      |
   | A3  (free)            |    | D3  IR_FULL_ENTRY    |
-  | A4  SDA  [I2C LCD]    |    | D4  IR_OBSTRUCTION   |
+  | A4  SDA  [I2C LCD]    |    | D4  (free — was IR_OBSTRUCTION) |
   | A5  SCL  [I2C LCD]    |    | D5  BUZZER           |
   +-----------------------+    | D6  SERVO            |
                                | D7  GREEN LED        |
@@ -86,9 +86,9 @@ connection does.
 |-------------|-----------|-----------|------------|----------|
 | **D2** | IR Sensor 1 (Entrance) | INPUT | Brown | Detects book entering the slot |
 | **D3** | IR Sensor 2 (Full Entry) | INPUT | Brown | Confirms book is fully inserted |
-| **D4** | IR Sensor 3 (Safety) | INPUT | Brown | Detects hand/obstruction before closing |
+| **D4** | *(free — previously IR Obstruction)* | — | — | Pin unused after safety sensor removal |
 | **D5** | Active Buzzer | OUTPUT | Brown | Audible feedback (success/error beeps) |
-| **D6** | SG90 Servo | OUTPUT (PWM) | Brown | Opens/closes the return slot gate |
+| **D6** | SG90 Servo | OUTPUT (PWM) | Brown | Opens/closes the door flap |
 | **D7** | Green LED (+) | OUTPUT | Pink | Lights up on approved return |
 | **D8** | Red LED (+) | OUTPUT | Pink | Lights up on rejected return |
 | **D9** | MFRC522 RST | OUTPUT | Purple | Resets the RFID reader |
@@ -155,13 +155,20 @@ The SG90 servo has a 3-pin connector (brown/red/orange on most cables).
 > **Note:** The SG90 draws ~150mA during movement. If the Arduino resets
 > when the servo moves, add a 470uF capacitor across the servo power rails.
 
-**Servo Angles:**
-- `0°` = Slot CLOSED (default position)
-- `90°` = Slot OPEN (book can be inserted)
+**Servo Angles (door flap mechanism):**
+
+The servo controls a door flap that opens to accept the book and closes
+after insertion. Lower angle = closed, higher angle = open.
+
+- `10°` = CLOSED — door flap shut (default position on boot)
+- `80°` = OPEN — door flap open, book can enter
+
+> Re-verify with `arduino/servo_calibration/servo_calibration.ino` if the
+> linkage or servo mounting changes. Angles calibrated 2026-07-18.
 
 ---
 
-### 3.3 IR Obstacle Sensors (x3)
+### 3.3 IR Obstacle Sensors (x2)
 
 Each IR sensor is a 3-pin module (VCC, GND, OUT). They output **LOW** when
 an obstacle is detected (the default for most Chinese IR obstacle modules).
@@ -170,7 +177,11 @@ an obstacle is detected (the default for most Chinese IR obstacle modules).
 |--------|-------------|------------|-------------------|----------|
 | IR1 — Entrance | **D2** | Brown | `IR_ENTRANCE_PIN` | Detects book entering the slot |
 | IR2 — Full Entry | **D3** | Brown | `IR_FULL_ENTRY_PIN` | Confirms book fully inside |
-| IR3 — Safety | **D4** | Brown | `IR_OBSTRUCTION_PIN` | Detects hand/obstruction before servo close |
+
+> **Removed:** The previous Safety Obstruction sensor (IR3 on D4) has been
+> removed. Pin D4 is now free. A timed `STATE_CLOSING_WARNING` (2s, double
+> beep) replaces the sensor-verified obstruction clearance — it warns users
+> but does not verify clearance.
 
 **Each IR sensor connections:**
 
@@ -178,7 +189,7 @@ an obstacle is detected (the default for most Chinese IR obstacle modules).
 |--------|-------------|------------|
 | VCC | **5V** | Red |
 | GND | **GND** | Black |
-| OUT | **D2 / D3 / D4** | Brown |
+| OUT | **D2 / D3** | Brown |
 
 > **IR Active State:** The firmware defines `IR_ACTIVE_STATE = LOW` (line 66
 > of the `.ino`). If your sensors are active-HIGH, change this to `HIGH`.
@@ -195,7 +206,7 @@ an obstacle is detected (the default for most Chinese IR obstacle modules).
     |                            |
     |  [IR2: Full Entry]         |  <-- inside the slot, halfway down
     |                            |
-    |  [IR3: Safety Obstruction] |  <-- near the servo closing mechanism
+    |  [Servo] ── door flap       |  <-- closing warning (2s, double beep)
     |                            |
     +----------------------------+
 ```
@@ -218,7 +229,9 @@ needed for basic beeps, but the firmware uses `tone()` for frequency control.
 > produce distinct success/error sounds.
 
 **Sound Patterns:**
+- **Approved:** Single beep (1800 Hz), 100ms
 - **Success:** Two ascending beeps (1500 Hz → 2000 Hz), 120ms + 150ms
+- **Closing Warning:** Double mid-tone beep (1200 Hz × 2), 2s warning before slot close
 - **Error:** Single low beep (400 Hz), 300ms
 
 ---
@@ -273,7 +286,6 @@ malformed UID, or any flow timeout.
 - PC_TIMEOUT (Flask didn't respond within 5s)
 - INSERT_TIMEOUT (no book inserted within 15s)
 - INCOMPLETE_ENTRY (book not fully inserted within 8s)
-- OBSTRUCTION_TIMEOUT (hand still blocking after 10s)
 
 ---
 
@@ -302,7 +314,7 @@ have a small potentiometer on the back for contrast adjustment.
 | VALID → slot open | `Slot open` | `Insert the book` |
 | Book detected | `Book detected` | `Keep pushing...` |
 | Full entry | `Checking slot...` | `Please wait` |
-| Obstruction | `Please remove` | `hand from slot` |
+| Closing warning | `Book received!` | `Closing shortly` |
 | Return success | `Return success!` | `Thank you.` |
 | Unknown tag | `Tag not` | `recognized` |
 | Not borrowed | `Book not` | `checked out` |
@@ -323,7 +335,6 @@ Use the Arduino's built-in 5V and GND pins to power all peripherals.
 Arduino 5V ──────> Breadboard (+) rail
                     ├── IR Sensor 1 VCC
                     ├── IR Sensor 2 VCC
-                    ├── IR Sensor 3 VCC
                     ├── Servo VCC (red wire)
                     ├── Buzzer VCC
                     └── LCD VCC
@@ -331,7 +342,6 @@ Arduino 5V ──────> Breadboard (+) rail
 Arduino GND ─────> Breadboard (-) rail
                     ├── IR Sensor 1 GND
                     ├── IR Sensor 2 GND
-                    ├── IR Sensor 3 GND
                     ├── Servo GND (brown wire)
                     ├── Buzzer GND
                     ├── LCD GND
@@ -353,7 +363,7 @@ Arduino 3.3V ────> RC522 VCC (ONLY!)
 | Active Buzzer | ~5mA | ~30mA |
 | Green LED (220Ω) | ~15mA | ~15mA |
 | Red LED (220Ω) | ~15mA | ~15mA |
-| **TOTAL** | **~98mA** | **~295mA** |
+| **TOTAL** | **~88mA** | **~280mA** |
 
 > The Arduino Uno's USB port supplies up to **500mA**. Total peak draw is
 > ~295mA — well within limits. If you add more components later, consider
@@ -441,13 +451,13 @@ what it controls.
 | `SERVO_PIN` | 6 | D6 | SG90 servo signal |
 | `IR_ENTRANCE_PIN` | 2 | D2 | IR sensor 1 (entrance) |
 | `IR_FULL_ENTRY_PIN` | 3 | D3 | IR sensor 2 (full entry) |
-| `IR_OBSTRUCTION_PIN` | 4 | D4 | IR sensor 3 (safety) |
+| `IR_OBSTRUCTION_PIN` | 4 | D4 | *(removed — pin now free)* |
 | `BUZZER_PIN` | 5 | D5 | Active buzzer |
 | `LED_GREEN_PIN` | 7 | D7 | Green LED (approved) |
 | `LED_RED_PIN` | 8 | D8 | Red LED (rejected) |
 | `IR_ACTIVE_STATE` | LOW | — | IR sensor trigger level |
-| `SERVO_CLOSED_ANGLE` | 0 | — | Slot gate closed position |
-| `SERVO_OPEN_ANGLE` | 90 | — | Slot gate open position |
+| `SERVO_CLOSED_ANGLE` | 10 | — | Door flap closed (default on boot) |
+| `SERVO_OPEN_ANGLE` | 80 | — | Door flap open (book can enter) |
 
 **SPI Bus (fixed):**
 
@@ -482,26 +492,24 @@ what it controls.
                       |  D7  ───────[220R]──────|>|── GND   (GREEN LED)
                       |  D6  ─────────────────── Servo Signal (orange)
                       |  D5  ─────────────────── Buzzer (+)
-                      |  D4  ─────────────────── IR3 OUT (Safety)
-                      |  D3  ─────────────────── IR2 OUT (Full Entry)
-                      |  D2  ─────────────────── IR1 OUT (Entrance)
+                       |  D4  ─────────────────── (free — was IR3 Safety)
+                       |  D3  ─────────────────── IR2 OUT (Full Entry)
+                       |  D2  ─────────────────── IR1 OUT (Entrance)
                       |                          |
                       |  A4  ─────────────────── LCD SDA
                       |  A5  ─────────────────── LCD SCL
                       |                          |
                       |  3.3V ────────────────── RC522 VCC  (3.3V ONLY!)
                       |  5V   ─────┬──────────── Servo VCC (red)
-                      |            ├──────────── IR1 VCC
-                      |            ├──────────── IR2 VCC
-                      |            ├──────────── IR3 VCC
-                      |            ├──────────── Buzzer GND
+                       |            ├──────────── IR1 VCC
+                       |            ├──────────── IR2 VCC
+                       |            ├──────────── Buzzer GND
                       |            └──────────── LCD VCC
                       |  GND  ─────┬──────────── RC522 GND
                       |            ├──────────── Servo GND (brown)
-                      |            ├──────────── IR1 GND
-                      |            ├──────────── IR2 GND
-                      |            ├──────────── IR3 GND
-                      |            ├──────────── Buzzer GND
+                       |            ├──────────── IR1 GND
+                       |            ├──────────── IR2 GND
+                       |            ├──────────── Buzzer GND
                       |            ├──────────── LCD GND
                       |            ├──────────── Green LED cathode
                       |            └──────────── Red LED cathode
@@ -530,9 +538,8 @@ what it controls.
   │   │                              │               │
   │   │  [IR1] ── entrance           │               │
   │   │  [IR2] ── full entry         │               │
-  │   │  [IR3] ── safety (exit)      │               │
   │   │                              │               │
-  │   │  [Servo] ── gate mechanism   │               │
+  │   │  [Servo] ── door flap    │               │
   │   └──────────────────────────────┘               │
   │                                                  │
   │   ┌──────────────────┐   ┌──────────────────┐   │
@@ -555,10 +562,10 @@ what it controls.
 
 - [ ] Arduino Uno R3 placed inside the box, USB port accessible
 - [ ] RC522 connected via SPI (pins 9, 10, 11, 12, 13) + **3.3V** + GND
-- [ ] Servo connected to D6 + 5V + GND; servo arm attached to slot gate
+- [ ] Servo connected to D6 + 5V + GND; servo linkage attached to door flap
 - [ ] IR Sensor 1 (Entrance) connected to D2 + 5V + GND
 - [ ] IR Sensor 2 (Full Entry) connected to D3 + 5V + GND
-- [ ] IR Sensor 3 (Safety) connected to D4 + 5V + GND
+- [ ] D4 left free (previously used for Safety Obstruction sensor — removed)
 - [ ] Buzzer connected to D5 + GND
 - [ ] Green LED connected to D7 through 220Ω resistor to GND
 - [ ] Red LED connected to D8 through 220Ω resistor to GND

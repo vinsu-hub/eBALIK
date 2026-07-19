@@ -11,10 +11,9 @@ one message per line (`\n` terminated), comma-separated fields.
 | `RFID,<uid>`                      | A card was scanned, backend must validate it           |
 | `STATUS,ENTRANCE_DETECTED`        | Book is entering the slot                              |
 | `STATUS,FULL_ENTRY`               | Book has fully entered the container                   |
-| `STATUS,OBSTRUCTION`              | Something is blocking the slot before it can close      |
 | `STATUS,SLOT_CLOSED`              | Slot has closed safely                                 |
 | `RETURN_SUCCESS,<uid>`            | Full return cycle completed successfully                |
-| `RETURN_FAILED,<uid>,<reason>`    | Cycle aborted. Reasons: `PC_TIMEOUT`, `INSERT_TIMEOUT`, `INCOMPLETE_ENTRY`, `OBSTRUCTION_TIMEOUT` |
+| `RETURN_FAILED,<uid>,<reason>`    | Cycle aborted. Reasons: `PC_TIMEOUT`, `INSERT_TIMEOUT`, `INCOMPLETE_ENTRY` |
 
 ## PC -> Arduino
 
@@ -39,10 +38,23 @@ one message per line (`\n` terminated), comma-separated fields.
 6. On `RETURN_FAILED,<uid>,<reason>` -> log the failure to `system_logs`
    and push a `return_failed` event to the dashboard.
 
+## State machine notes
+
+- The system uses **2 IR sensors** (Entrance, Full-Entry). The previous third
+  sensor (Safety Obstruction, pin 4) has been removed. In its place, a timed
+  `STATE_CLOSING_WARNING` gives a 2-second LCD message ("Book received! /
+  Closing shortly") with a double mid-tone buzzer pulse before the servo
+  closes. This is a timed warning, **not** sensor-verified clearance.
+- `STATUS,OBSTRUCTION` and `RETURN_FAILED,<uid>,OBSTRUCTION_TIMEOUT` no
+  longer exist and will never be sent by the firmware.
+- After `STATUS,FULL_ENTRY`, the Arduino enters `CLOSING_WARNING` (2s), then
+  immediately transitions to `CLOSING` (sends `RETURN_SUCCESS`). The backend
+  sees `STATUS,FULL_ENTRY` followed by `STATUS,SLOT_CLOSED` with ~2s delay.
+
 ## Timeout / retry notes
 
 - The Arduino owns all timing for the physical steps (insertion, full entry,
-  obstruction clearing). The backend only needs to answer `VALID`/`INVALID`
+  closing warning). The backend only needs to answer `VALID`/`INVALID`
   quickly (within ~5s) after an `RFID,<uid>` message.
 - If the backend or serial link drops mid-cycle, the Arduino will time out on
   its own and return to `IDLE`; no special recovery is required on the PC side

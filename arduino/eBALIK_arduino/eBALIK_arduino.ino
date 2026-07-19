@@ -5,22 +5,31 @@
   Hardware:
     - MFRC522 RFID Reader (SPI)
     - SG90 Servo Motor (return slot)
-    - 3x IR Obstacle Sensors (Entrance / Full Entry / Safety Obstruction)
+    - 2x IR Obstacle Sensors (Entrance / Full Entry)
     - 16x2 I2C LCD
     - Active Buzzer
     - Green LED (return approved)
     - Red LED (return rejected)
 
+  NOTE: The original design included a third IR sensor (Safety Obstruction
+  Detection) that verified the slot was clear before closing. That sensor
+  has been removed from this build. In its place, a timed LCD + buzzer
+  warning (STATE_CLOSING_WARNING) gives a short heads-up before the servo
+  closes. This is a mitigation, not a replacement -- it does not verify
+  the slot is actually clear the way the sensor did. Pin 4 (previously
+  IR_OBSTRUCTION_PIN) is unused and available if the sensor is added back
+  later.
+
   Communication:
     Talks to the Flask backend over USB Serial (115200 baud) using a
     simple line-based text protocol. See /docs/PROTOCOL.md for the
-    full spec. Quick reference:
+    full spec -- update it to match the removed OBSTRUCTION messages
+    below. Quick reference:
 
     Arduino -> PC
       RFID,<uid>                 a card was scanned
       STATUS,ENTRANCE_DETECTED   book entering the slot
       STATUS,FULL_ENTRY          book fully inside
-      STATUS,OBSTRUCTION         obstruction seen before close
       STATUS,SLOT_CLOSED         slot closed safely
       RETURN_SUCCESS,<uid>       full cycle completed
       RETURN_FAILED,<uid>,<reason>
@@ -37,44 +46,50 @@
     Servo   signal=6
     IR1 (entrance)     = 2
     IR2 (full entry)   = 3
-    IR3 (obstruction)  = 4
+    (pin 4 unused -- previously obstruction sensor)
     Buzzer             = 5
     Green LED          = 7
     Red LED            = 8
     LCD (I2C)          = SDA A4 / SCL A5, addr 0x27 (16x2)
 */
 
-#include <SPI.h>
+#include <LiquidCrystal_I2C.h>
 #include <MFRC522.h>
+#include <SPI.h>
 #include <Servo.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 
 // ---------- Pin configuration ----------
-#define RFID_SS_PIN   10
-#define RFID_RST_PIN  9
-#define SERVO_PIN     6
-#define IR_ENTRANCE_PIN     2
-#define IR_FULL_ENTRY_PIN   3
-#define IR_OBSTRUCTION_PIN  4
-#define BUZZER_PIN    5
+#define RFID_SS_PIN 10
+#define RFID_RST_PIN 9
+#define SERVO_PIN 6
+#define IR_ENTRANCE_PIN 2
+#define IR_FULL_ENTRY_PIN 3
+#define BUZZER_PIN 5
 #define LED_GREEN_PIN 7
-#define LED_RED_PIN   8
+#define LED_RED_PIN 8
 
 // IR sensors: most obstacle modules pull LOW when they detect something.
 // Flip this if your modules are active-HIGH.
 #define IR_ACTIVE_STATE LOW
 
-// Servo angles
-#define SERVO_CLOSED_ANGLE 0
-#define SERVO_OPEN_ANGLE   90
+// Servo angles (door flap mechanism -- calibrated 2026-07-18)
+// CLOSED = flap shut; OPEN = flap open so book can enter.
+// Re-verify with arduino/servo_calibration/servo_calibration.ino if
+// the linkage or servo mounting changes.
+#define SERVO_CLOSED_ANGLE 10
+#define SERVO_OPEN_ANGLE   80
 
 // Timeouts (milliseconds)
-const unsigned long RFID_VALIDATION_TIMEOUT = 5000;   // waiting for VALID/INVALID from PC
-const unsigned long INSERT_TIMEOUT          = 15000;  // waiting for book to be inserted
-const unsigned long FULL_ENTRY_TIMEOUT       = 8000;   // waiting for full entry after entrance detected
-const unsigned long OBSTRUCTION_CLEAR_TIMEOUT = 10000; // waiting for hand/object to clear
-const unsigned long RFID_DEBOUNCE_MS        = 3000;   // ignore same tag for 3s after scan
+const unsigned long RFID_VALIDATION_TIMEOUT =
+    5000;                                   // waiting for VALID/INVALID from PC
+const unsigned long INSERT_TIMEOUT = 15000; // waiting for book to be inserted
+const unsigned long FULL_ENTRY_TIMEOUT =
+    8000; // waiting for full entry after entrance detected
+const unsigned long CLOSE_WARNING_MS =
+    2000; // "closing shortly" warning before slot closes
+const unsigned long RFID_DEBOUNCE_MS =
+    3000; // ignore same tag for 3s after scan
 
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN);
 Servo returnSlotServo;
@@ -84,9 +99,9 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 enum SystemState {
   STATE_IDLE,
   STATE_AWAITING_VALIDATION,
-  STATE_SLOT_OPEN_AWAIT_ENTRANCE,
+  STATE_AWAITING_ENTRANCE,
   STATE_AWAIT_FULL_ENTRY,
-  STATE_AWAIT_OBSTRUCTION_CLEAR,
+  STATE_CLOSING_WARNING,
   STATE_CLOSING,
   STATE_ERROR_DISPLAY
 };
@@ -97,6 +112,10 @@ unsigned long lastScanTime = 0;
 String pendingUID = "";
 String serialBuffer = "";
 
+// Tracks whether the second warning pulse has fired for the current
+// STATE_CLOSING_WARNING cycle, so it only fires once per cycle.
+bool closingPulse2Fired = false;
+
 void setup() {
   Serial.begin(115200);
   SPI.begin();
@@ -104,7 +123,6 @@ void setup() {
 
   pinMode(IR_ENTRANCE_PIN, INPUT);
   pinMode(IR_FULL_ENTRY_PIN, INPUT);
-  pinMode(IR_OBSTRUCTION_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
@@ -127,86 +145,90 @@ void loop() {
   readSerialCommands();
 
   switch (currentState) {
-    case STATE_IDLE:
-      pollForCard();
-      break;
+  case STATE_IDLE:
+    pollForCard();
+    break;
 
-    case STATE_AWAITING_VALIDATION:
-      if (millis() - stateEnteredAt > RFID_VALIDATION_TIMEOUT) {
-        showError("No response", "Try again");
-        blinkRed();
-        sendReturnFailed(pendingUID, "PC_TIMEOUT");
-        goIdleAfterDelay(1500);
-      }
-      break;
+  case STATE_AWAITING_VALIDATION:
+    if (millis() - stateEnteredAt > RFID_VALIDATION_TIMEOUT) {
+      showError("No response", "Try again");
+      blinkRed();
+      sendReturnFailed(pendingUID, "PC_TIMEOUT");
+      goIdleAfterDelay(1500);
+    }
+    break;
 
-    case STATE_SLOT_OPEN_AWAIT_ENTRANCE:
-      if (irTriggered(IR_ENTRANCE_PIN)) {
-        Serial.println("STATUS,ENTRANCE_DETECTED");
-        showMessage("Book detected", "Keep pushing...");
-        currentState = STATE_AWAIT_FULL_ENTRY;
-        stateEnteredAt = millis();
-      } else if (millis() - stateEnteredAt > INSERT_TIMEOUT) {
-        showError("Timeout", "No book inserted");
-        blinkRed();
-        sendReturnFailed(pendingUID, "INSERT_TIMEOUT");
-        closeSlotAndReset();
-      }
-      break;
+  case STATE_AWAITING_ENTRANCE:
+    if (irTriggered(IR_ENTRANCE_PIN)) {
+      Serial.println("STATUS,ENTRANCE_DETECTED");
+      returnSlotServo.write(SERVO_OPEN_ANGLE);
+      showMessage("Book detected", "Keep pushing...");
+      currentState = STATE_AWAIT_FULL_ENTRY;
+      stateEnteredAt = millis();
+    } else if (millis() - stateEnteredAt > INSERT_TIMEOUT) {
+      showError("Timeout", "No book inserted");
+      blinkRed();
+      sendReturnFailed(pendingUID, "INSERT_TIMEOUT");
+      closeSlotAndReset();
+    }
+    break;
 
-    case STATE_AWAIT_FULL_ENTRY:
-      if (irTriggered(IR_FULL_ENTRY_PIN)) {
-        Serial.println("STATUS,FULL_ENTRY");
-        showMessage("Checking slot...", "Please wait");
-        currentState = STATE_AWAIT_OBSTRUCTION_CLEAR;
-        stateEnteredAt = millis();
-      } else if (millis() - stateEnteredAt > FULL_ENTRY_TIMEOUT) {
-        showError("Incomplete", "Book not fully in");
-        blinkRed();
-        sendReturnFailed(pendingUID, "INCOMPLETE_ENTRY");
-        closeSlotAndReset();
-      }
-      break;
+  case STATE_AWAIT_FULL_ENTRY:
+    if (irTriggered(IR_FULL_ENTRY_PIN)) {
+      Serial.println("STATUS,FULL_ENTRY");
+      showMessage("Book received!", "Closing shortly");
+      beepClosingPulse();
+      closingPulse2Fired = false;
+      currentState = STATE_CLOSING_WARNING;
+      stateEnteredAt = millis();
+    } else if (millis() - stateEnteredAt > FULL_ENTRY_TIMEOUT) {
+      showError("Incomplete", "Book not fully in");
+      blinkRed();
+      sendReturnFailed(pendingUID, "INCOMPLETE_ENTRY");
+      closeSlotAndReset();
+    }
+    break;
 
-    case STATE_AWAIT_OBSTRUCTION_CLEAR:
-      if (irTriggered(IR_OBSTRUCTION_PIN)) {
-        // something (hand/object) still blocking the slot
-        if (millis() - stateEnteredAt == 0 || (millis() - stateEnteredAt) % 1000 < 20) {
-          Serial.println("STATUS,OBSTRUCTION");
-          showMessage("Please remove", "hand from slot");
-        }
-        if (millis() - stateEnteredAt > OBSTRUCTION_CLEAR_TIMEOUT) {
-          showError("Cancelled", "Obstruction timeout");
-          blinkRed();
-          sendReturnFailed(pendingUID, "OBSTRUCTION_TIMEOUT");
-          goIdleAfterDelay(1500); // leave slot open, do not force-close on obstruction
-        }
-      } else {
-        currentState = STATE_CLOSING;
-      }
-      break;
+  case STATE_CLOSING_WARNING: {
+    // Non-blocking: still services serial commands and stays responsive
+    // for the full warning window instead of freezing execution.
+    unsigned long elapsed = millis() - stateEnteredAt;
 
-    case STATE_CLOSING:
-      returnSlotServo.write(SERVO_CLOSED_ANGLE);
-      Serial.println("STATUS,SLOT_CLOSED");
-      Serial.print("RETURN_SUCCESS,");
-      Serial.println(pendingUID);
-      blinkGreen();
-      beepSuccess();
-      showMessage("Return success!", "Thank you.");
-      goIdleAfterDelay(2000);
-      break;
+    // Second pulse partway through the warning window, fires once.
+    if (!closingPulse2Fired && elapsed > (CLOSE_WARNING_MS / 2)) {
+      beepClosingPulse();
+      closingPulse2Fired = true;
+    }
 
-    case STATE_ERROR_DISPLAY:
-      // handled via goIdleAfterDelay() calls
-      break;
+    if (elapsed > CLOSE_WARNING_MS) {
+      currentState = STATE_CLOSING;
+    }
+    break;
+  }
+
+  case STATE_CLOSING:
+    returnSlotServo.write(SERVO_CLOSED_ANGLE);
+    Serial.println("STATUS,SLOT_CLOSED");
+    Serial.print("RETURN_SUCCESS,");
+    Serial.println(pendingUID);
+    blinkGreen();
+    beepSuccess();
+    showMessage("Return success!", "Thank you.");
+    goIdleAfterDelay(2000);
+    break;
+
+  case STATE_ERROR_DISPLAY:
+    // handled via goIdleAfterDelay() calls
+    break;
   }
 }
 
 // ---------- Card polling ----------
 void pollForCard() {
-  if (!rfid.PICC_IsNewCardPresent()) return;
-  if (!rfid.PICC_ReadCardSerial()) return;
+  if (!rfid.PICC_IsNewCardPresent())
+    return;
+  if (!rfid.PICC_ReadCardSerial())
+    return;
 
   String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
 
@@ -234,7 +256,8 @@ void pollForCard() {
 String uidToString(byte *buffer, byte bufferSize) {
   String result = "";
   for (byte i = 0; i < bufferSize; i++) {
-    if (buffer[i] < 0x10) result += "0";
+    if (buffer[i] < 0x10)
+      result += "0";
     result += String(buffer[i], HEX);
   }
   result.toUpperCase();
@@ -282,7 +305,9 @@ void handleCommand(String line) {
   if (cmd == "VALID") {
     blinkGreen();
     beepApproved();
-    openSlotForInsertion();
+    showMessage("Book approved", "Insert when ready");
+    currentState = STATE_AWAITING_ENTRANCE;
+    stateEnteredAt = millis();
   } else if (cmd == "INVALID") {
     // Parse optional reason field (e.g. INVALID,<uid>,UNKNOWN_TAG)
     int secondComma = arg.indexOf(',');
@@ -307,7 +332,7 @@ void handleCommand(String line) {
 void openSlotForInsertion() {
   returnSlotServo.write(SERVO_OPEN_ANGLE);
   showMessage("Slot open", "Insert the book");
-  currentState = STATE_SLOT_OPEN_AWAIT_ENTRANCE;
+  currentState = STATE_AWAITING_ENTRANCE;
   stateEnteredAt = millis();
 }
 
@@ -316,9 +341,7 @@ void closeSlotAndReset() {
   goIdleAfterDelay(500);
 }
 
-bool irTriggered(int pin) {
-  return digitalRead(pin) == IR_ACTIVE_STATE;
-}
+bool irTriggered(int pin) { return digitalRead(pin) == IR_ACTIVE_STATE; }
 
 // ---------- Non-blocking "go idle after N ms" helper ----------
 unsigned long idleDelayUntil = 0;
@@ -346,9 +369,7 @@ void sendReturnFailed(String uid, String reason) {
   Serial.println(reason);
 }
 
-void sendHello() {
-  Serial.println("HELLO,EBALIK,1.0");
-}
+void sendHello() { Serial.println("HELLO,EBALIK,1.0"); }
 
 // ---------- LCD helpers ----------
 void showIdleScreen() {
@@ -373,9 +394,14 @@ void showError(String line1, String line2) {
 }
 
 // ---------- Buzzer helpers ----------
-void beepApproved() {
-  tone(BUZZER_PIN, 1800, 100);
-}
+// Each cue is deliberately distinct so it's identifiable by ear alone:
+//   approved        - single short high chirp
+//   success         - two-tone rising sweep
+//   error           - single low buzz
+//   closing warning - double mid-tone pulse (fires twice during the
+//                     2s warning window before the slot closes)
+
+void beepApproved() { tone(BUZZER_PIN, 1800, 100); }
 
 void beepSuccess() {
   tone(BUZZER_PIN, 1500, 120);
@@ -383,8 +409,17 @@ void beepSuccess() {
   tone(BUZZER_PIN, 2000, 150);
 }
 
-void beepError() {
-  tone(BUZZER_PIN, 400, 300);
+void beepError() { tone(BUZZER_PIN, 400, 300); }
+
+void beepClosingPulse() {
+  // Two quick beeps at a mid frequency -- distinct from the single-shot
+  // approved chirp and the smooth success sweep. tone() with a duration
+  // is non-blocking on its own, but the two beeps here are close enough
+  // together that a short blocking gap between them is negligible and
+  // keeps the pulse sounding tight rather than spread out.
+  tone(BUZZER_PIN, 1200, 80);
+  delay(120);
+  tone(BUZZER_PIN, 1200, 80);
 }
 
 // ---------- LED helpers ----------

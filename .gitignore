@@ -29,3 +29,7 @@ mysql_data/
 .agents/
 .claude/
 skills-lock.json
+
+# Binaries / large files
+TOOLS/arduino-cli.exe
+TOOLS/drivers/

@@ -41,14 +41,12 @@ window.addEventListener("ebalik:hardware_status", (e) => {
   const status = e.detail.status;
   const labelMap = {
     ENTRANCE_DETECTED: "Book entering slot...",
-    FULL_ENTRY: "Book fully inserted, checking slot...",
-    OBSTRUCTION: "Obstruction detected!",
+    FULL_ENTRY: "Book fully inserted, closing shortly...",
     SLOT_CLOSED: "Slot closed",
   };
   const clsMap = {
     ENTRANCE_DETECTED: "info",
     FULL_ENTRY: "info",
-    OBSTRUCTION: "danger",
     SLOT_CLOSED: "secondary",
   };
   setLiveIndicator(labelMap[status] || status, clsMap[status] || "secondary");

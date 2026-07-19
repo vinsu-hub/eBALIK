@@ -53,7 +53,7 @@ DB_CONFIG = {
     "charset": "utf8mb4",
 }
 
-FLASK_URL = "http://localhost:5000"
+FLASK_URL = "http://localhost:5001"
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin123"
 
@@ -199,7 +199,7 @@ def simulate_single(db, book):
     print_sim_log(f"  Status: borrowed -> VALID")
     time.sleep(0.3)
 
-    print_sim_log(f"Opening return slot (servo -> 90 deg)")
+    print_sim_log(f"Opening return slot (servo -> 80 deg)")
     time.sleep(0.3)
 
     print_sim_log(f"IR Entrance: book detected")
@@ -208,10 +208,10 @@ def simulate_single(db, book):
     print_sim_log(f"IR Full Entry: book fully inserted")
     time.sleep(0.2)
 
-    print_sim_log(f"IR Obstruction: clear")
+    print_sim_log(f"Closing warning: book received, closing shortly...")
     time.sleep(0.2)
 
-    print_sim_log(f"Closing return slot (servo -> 0 deg)")
+    print_sim_log(f"Closing return slot (servo -> 10 deg)")
     time.sleep(0.2)
 
     print_sim_log(f"Updating database...")
@@ -282,7 +282,7 @@ def auto_mode(db):
         time.sleep(1)
 
     print_section("All returns complete!")
-    print("  Open http://localhost:5000 to see the updated dashboard.")
+    print("  Open http://localhost:5001 to see the updated dashboard.")
 
 
 def single_mode(db, uid):

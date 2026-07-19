@@ -1,16 +1,17 @@
 # eBALIK — Current System Architecture
 
-> Last updated: 2026-07-12
+> Last updated: 2026-07-18
 > Covers hardware, firmware, backend, frontend, serial protocol, data flow,
-> CH340 integration, RFID tag registration, and system hardening
-> (UID validation, INVALID reason field, debounce, reconnect, DEBUG_MODE gating).
+> CH340 integration, RFID tag registration, system hardening
+> (UID validation, INVALID reason field, debounce, reconnect, DEBUG_MODE gating),
+> and safety sensor removal (2-sensor + timed closing warning).
 
 ---
 
 ## 1. System Overview
 
 **eBALIK** (Book Automated Library Inventory Keeper) is an RFID-based automated
-book return station. A physical return box with sensors, a servo-controlled slot,
+book return station. A physical return box with sensors, a door flap mechanism,
 an RFID reader, LCD, and buzzer is controlled by an Arduino Uno R3. The Arduino
 communicates over USB Serial to a local Flask + MySQL web dashboard running on a
 single laptop. Librarians manage the catalog and watch returns happen in real
@@ -24,7 +25,7 @@ time via Socket.IO.
   └──────────┘     │         │     └────┬─────┘     └──────────┘
                    │  USB    │          │ Socket.IO
    ┌──────────┐    │  Serial │     ┌────▼─────┐
-   │  3x IR   │    │ (115200)│     │  Browser │
+   │  2x IR   │    │ (115200)│     │  Browser │
    │ Sensors  │◀───│         │     │  (Admin)  │
    └──────────┘    │         │     └──────────┘
    ┌──────────┐    │  PWM    │
@@ -59,10 +60,9 @@ time via Socket.IO.
 | Arduino Uno R3 | ATmega328P, 5V, 16 MHz | Main MCU, runs state machine |
 | RFID Reader | RC522, 13.56 MHz (SPI) | Reads RFID tag UIDs |
 | RFID Tags | 13.56 MHz sticker/card | Unique ID per book |
-| Servo Motor | SG90, 5V | Opens/closes return slot |
+| Servo Motor | SG90, 5V | Door flap: opens to accept book, closes after insertion |
 | IR Sensor (Entrance) | Obstacle sensor | Detects book entering slot |
 | IR Sensor (Full Entry) | Obstacle sensor | Confirms full insertion |
-| IR Sensor (Safety) | Obstacle sensor | Detects obstructions before closing |
 | LCD Display | 16x2, I2C (addr 0x27) | User feedback messages |
 | Buzzer | Active, 5V | Audible confirmation/alerts |
 | Green LED | 5mm, with 220Ω resistor | Visual: return approved (pin D7) |
@@ -76,7 +76,7 @@ time via Socket.IO.
 | 6 | SG90 Servo | PWM signal |
 | 2 | IR Sensor 1 (Entrance) | Active LOW |
 | 3 | IR Sensor 2 (Full Entry) | Active LOW |
-| 4 | IR Sensor 3 (Safety) | Active LOW |
+| 4 | *(free — previously IR Obstruction)* | — |
 | 5 | Active Buzzer | Digital HIGH = on |
 | 7 | Green LED | Return approved indicator (220Ω to GND) |
 | 8 | Red LED | Return rejected indicator (220Ω to GND) |
@@ -90,6 +90,12 @@ The Arduino firmware (`arduino/eBALIK_arduino/eBALIK_arduino.ino`) implements
 a 7-state machine. The Wokwi variant (`wokwi/eBALIK_wokwi.ino`) is identical
 except `IR_ACTIVE_STATE = HIGH` (pushbuttons replace IR sensors) and adds a
 `SIMULATE_UID` debug command.
+
+> **Note:** The safety obstruction sensor (IR3, pin D4) has been removed.
+> The `STATE_AWAIT_OBSTRUCTION_CLEAR` state is replaced by
+> `STATE_CLOSING_WARNING` — a 2-second timed warning (double beep, LCD
+  message) before the servo closes the door flap. This is a timed mitigation, not
+  sensor-verified clearance.
 
 ```
                     ┌──────────────────────────────────────────────┐
@@ -109,15 +115,15 @@ except `IR_ACTIVE_STATE = HIGH` (pushbuttons replace IR sensors) and adds a
        │                                                │ Full IR
        │                                                ▼
        │                              ┌──────────────────────────────┐
-       │                              │  AWAIT_OBSTRUCTION_CLEAR     │
-       │                              │  (Safety IR clear)           │
+       │                              │  CLOSING_WARNING             │
+       │                              │  (2s, double beep, LCD msg)  │
        │                              └───────────┬──────────────────┘
-       │                                            │ Clear
+       │                                            │ 2s elapsed
        │                                            ▼
        │                              ┌──────────────────────────────┐
-       │                              │  CLOSING                     │
-       │                              │  (servo close, send          │
-       │                              │   RETURN_SUCCESS, then idle) │
+        │                              │  CLOSING                     │
+        │                              │  (close door flap, send     │
+        │                              │   send RETURN_SUCCESS, idle) │
        └──────────────────────────────┴──────────────────────────────┘
 ```
 
@@ -125,7 +131,7 @@ except `IR_ACTIVE_STATE = HIGH` (pushbuttons replace IR sensors) and adds a
 - AWAITING_VALIDATION: 5s → ERROR_DISPLAY
 - SLOT_OPEN: 15s → IDLE (no entry detected)
 - AWAIT_FULL_ENTRY: 8s → IDLE
-- AWAIT_OBSTRUCTION_CLEAR: 10s → IDLE
+- CLOSING_WARNING: 2s (non-blocking, then transitions to CLOSING)
 - RFID debounce: 3s cooldown on same UID after scan (prevents duplicate scans)
 
 ---
@@ -468,8 +474,8 @@ User clicks "Scan to Register" button
    │                         → Arduino goes to ERROR_DISPLAY state
    └── Found, open borrow exists → emit scan_result {valid: true}
                                  → send "VALID,<uid>"
-                                 → Arduino opens servo slot (IR sequence)
-6. Arduino tracks: Entrance IR → Full Entry IR → Safety Clear
+                                  → Arduino closes door flap (IR sequence)
+6. Arduino tracks: Entrance IR → Full Entry IR → Closing Warning (2s)
 7. Arduino sends "RETURN_SUCCESS,<uid>"
 8. SerialBridge._handle_return_success():
    ├── Close borrow record (is_returned=True, returned_at=now)

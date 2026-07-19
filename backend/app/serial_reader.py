@@ -8,7 +8,7 @@ Responsibilities:
   - On RETURN_SUCCESS, close the borrow record, log the return, update the
     book status, and broadcast a Socket.IO event so the dashboard updates
     live without a page refresh.
-  - On RETURN_FAILED / STATUS,OBSTRUCTION, log a WARNING and broadcast it too.
+  - On RETURN_FAILED, log a WARNING and broadcast it too.
 
 This module is intentionally decoupled from the Flask request cycle: it runs
 in its own thread, using `app.app_context()` to talk to the DB safely.
@@ -171,8 +171,6 @@ class SerialBridge:
         if cmd == "STATUS":
             status = parts[1] if len(parts) > 1 else ""
             socketio.emit("hardware_status", {"status": status})
-            if status == "OBSTRUCTION":
-                log_event("WARNING", "ARDUINO", "Obstruction detected in return slot")
             return
 
         if cmd == "RETURN_SUCCESS":

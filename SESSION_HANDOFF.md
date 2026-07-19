@@ -1,7 +1,7 @@
 # eBALIK Session Handoff
 
-**Last updated:** 2026-07-14
-**Platform:** Windows (PowerShell), Python 3.13.7
+**Last updated:** 2026-07-18
+**Platform:** Windows (PowerShell), Python 3.13.14
 
 ---
 
@@ -336,3 +336,101 @@ Requires: Python 3.11+, MySQL 8.4, Arduino Uno R3 with CH340 USB-serial.
 7. Test debounce: hold tag on reader for >3s, verify only one scan processed
 8. Test reconnect: unplug/replug Arduino, verify dashboard re-syncs
 9. Download Bootstrap/Socket.IO locally if demo venue has no wifi
+
+---
+
+## Session 5 — 2026-07-18 (Full Environment Setup, Obstruction Removal, Servo Calibration, Firmware Update)
+
+### 1. Full Development Environment Setup (from scratch)
+- Installed Python 3.13.14 via winget
+- Created venv at `backend/venv` + installed all 10 direct + 20 transitive pip dependencies
+- Created `backend/.env` from `.env.example` (SECRET_KEY, DB_PASSWORD=ebalik123, SERIAL_ENABLED=true, DEBUG_MODE=true)
+- Initialized MySQL 8.4.9 data directory, started server, set root password, loaded `schema.sql` + `seed_data.sql`
+- Created admin user (`admin` / `admin123`) — fixed truncated scrypt password hash
+- CH340 driver installed via `SETUP.EXE /S`
+- Installed arduino-cli v1.5.1, AVR core 1.8.8, libraries: MFRC522 v1.4.12, LiquidCrystal I2C v1.1.2, Servo v1.3.0
+- Firmware compiles clean (45% flash, 53% RAM) and uploaded to COM4
+- Flask server running on `http://localhost:5001`, SerialBridge connected to COM4
+
+### 2. Safety Obstruction Sensor Removal Propagation
+The original design had 3 IR sensors (Entrance, Full Entry, Safety Obstruction). Safety Obstruction (pin D4) was removed from firmware. A closing warning module (2s delay, double beep, LCD message) replaced the sensor-verified clearance check.
+
+**Files updated:**
+- `docs/PROTOCOL.md` — removed STATUS,OBSTRUCTION + OBSTRUCTION_TIMEOUT, added STATE_CLOSING_WARNING
+- `backend/app/serial_reader.py` — removed OBSTRUCTION handler branch + docstring reference
+- `backend/app/static/js/dashboard.js` — removed OBSTRUCTION from labelMap/clsMap
+- `backend/hw_monitor.py` — removed OBSTRUCTION color override
+- `backend/simulate_return.py` — replaced obstruction step with closing warning
+- `README.md` — updated to 2 IR sensors, updated return flow
+- `WIRING_GUIDE.md` — 2 sensors, pin D4 free, all diagrams/tables updated
+- `currentsystemarchitecture.md` — state machine, BOM, pin map, protocols, flow diagrams
+- `TOOLS/eBALIK_project_context.md` — BOM, modules, workflow, comparison table
+- `wokwi/diagram.json` — removed btn_obstruction, r3, and all their wires
+- `wokwi/eBALIK_wokwi.ino` — updated to match real firmware (2 buttons, closing warning, debounce, LED stubs)
+- `arduino/eBALIK_arduino/eBALIK_arduino.ino` — replaced with final firmware (v1.0 with obstruction removal + closing warning)
+
+### 3. Servo Calibration — Physical Testing
+- Created `arduino/servo_calibration/servo_calibration.ino` — standalone test sketch for servo angle calibration
+- Uses Serial Monitor commands: type 0-180 for manual angle, 'o' for open, 'c' for closed, 's' for sweep
+- **Calibrated angles (confirmed by physical testing):**
+  - `SERVO_CLOSED_ANGLE = 10` (door flap closed, default on boot)
+  - `SERVO_OPEN_ANGLE = 80` (door flap open, book can enter)
+- Mechanism is a **door flap** (not a tilt-drop shelf as previously documented)
+
+### 4. Servo Calibration Propagation
+Updated all firmware, backend, and documentation to reflect calibrated values:
+
+**Firmware:**
+- `arduino/eBALIK_arduino/eBALIK_arduino.ino` — angles 10/80, "door flap" comments, calibrated date
+- `wokwi/eBALIK_wokwi.ino` — angles 10/80, "door flap" comments
+
+**Backend:**
+- `backend/simulate_return.py` — log messages: open = 80°, closed = 10°
+
+**Documentation (all updated from "tilt-drop shelf" → "door flap", angles 80/20 → 10/80):**
+- `WIRING_GUIDE.md` — angle table, firmware #define table, BOM, diagrams, checklist
+- `currentsystemarchitecture.md` — BOM, state machine diagram, intro, mechanism descriptions
+- `TOOLS/eBALIK_project_context.md` — module descriptions, workflow, BOM
+- `README.md` — intro, return flow description
+- `PROJECT_CURRENT_STATE.md` — angle table, mechanism description, all references
+
+### 5. Firmware Logic Change — Servo Opens on IR Detection
+Changed the return flow so the door flap only opens when the entrance IR sensor confirms the book is at the slot:
+
+**Old flow:** VALID → servo opens immediately → waits for entrance IR → full entry → closing warning → close
+**New flow:** VALID → servo stays closed, shows "Book approved" → entrance IR detects book → **NOW servo opens** → full entry IR → closing warning (2s) → servo closes
+
+**Code changes in `eBALIK_arduino.ino`:**
+- Renamed `STATE_SLOT_OPEN_AWAIT_ENTRANCE` → `STATE_AWAITING_ENTRANCE`
+- On VALID: show "Book approved / Insert when ready", servo stays closed (10°), enter STATE_AWAITING_ENTRANCE
+- In STATE_AWAITING_ENTRANCE: when entrance IR triggers, NOW open servo (80°), show "Book detected / Keep pushing..."
+- Rest of flow unchanged: full entry → closing warning → servo close
+
+### 6. Port Mismatch Fix
+Fixed `localhost:5000` → `localhost:5001` in three standalone scripts:
+- `backend/simulate_return.py`
+- `backend/sim_terminal.py`
+- `backend/hw_monitor.py`
+
+### 7. Key System State at End of Session
+
+| Component | Status |
+|-----------|--------|
+| MySQL | Running (port 3306), root/ebalik123 |
+| Flask + Socket.IO | Running (port 5001) |
+| SerialBridge | Auto-started in Flask, COM4 |
+| Arduino | Firmware uploaded (COM4), door flap angles 10/80 |
+| Dashboard | http://localhost:5001, admin/admin123 |
+
+**Books with active borrows (test these):**
+| RFID UID | Book | Borrower |
+|----------|------|----------|
+| 04A1B2C3 | Data Structures and Algorithms | Juan Dela Cruz |
+| 04D4E5F6 | Operating System Concepts | Maria Santos |
+| 04A3B4C5 | Database System Concepts | Pedro Reyes |
+
+**Do NOT start `hw_monitor.py`** — it conflicts with SerialBridge for COM4.
+
+### 8. Files Created This Session
+- `PROJECT_CURRENT_STATE.md` — full project state snapshot
+- `arduino/servo_calibration/servo_calibration.ino` — standalone servo test sketch

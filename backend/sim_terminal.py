@@ -3,7 +3,7 @@ eBALIK Interactive Terminal Simulator
 
 A standalone CMD window that acts as a Virtual Arduino.
 Type RFID UIDs to simulate book returns, and watch the
-dashboard at http://localhost:5000 update in real time.
+dashboard at http://localhost:5001 update in real time.
 
 Usage:
     python sim_terminal.py
@@ -49,7 +49,7 @@ DB_CONFIG = {
     "charset": "utf8mb4",
 }
 
-FLASK_URL = "http://localhost:5000"
+FLASK_URL = "http://localhost:5001"
 
 # Demo borrower names for the reset command
 DEMO_BORROWERS = [

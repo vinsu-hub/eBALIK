@@ -48,16 +48,15 @@ Flask Web Application
   → Library Management Dashboard (Admin / Librarian)
 
 Arduino Uno R3 also directly controls:
-  - Servo Motor        (Open / Close Return Slot)
+  - Servo Motor        (Release / Engage Return Shelf)
   - IR Sensor 1         (Entrance Detection)
   - IR Sensor 2         (Full Entry Detection)
-  - IR Sensor 3         (Safety Obstruction Detection)
   - LCD Display         (User Feedback)
   - Buzzer              (Audible Alert)
 ```
 
 Data/control flow: User → RFID Reader → Arduino → Flask → MySQL → Dashboard.
-Hardware control flow: Arduino directly drives the servo, 3 IR sensors, LCD,
+Hardware control flow: Arduino directly drives the servo, 2 IR sensors, LCD,
 and buzzer.
 
 ---
@@ -69,10 +68,9 @@ and buzzer.
 | Embedded Hardware | Arduino Uno R3 | Main microcontroller that controls all hardware components and executes the return process. |
 | Embedded Hardware | RFID Reader | Reads the RFID tag attached to each library book. |
 | Embedded Hardware | RFID-tagged Book | Provides a unique identification number for every library book. |
-| Embedded Hardware | Servo Motor | Opens and closes the return slot automatically. |
+| Embedded Hardware | Servo Motor | Opens and closes the return door flap. |
 | Embedded Hardware | IR Sensor (Entrance Detection) | Detects when a book enters the return slot. |
 | Embedded Hardware | IR Sensor (Full Entry Detection) | Confirms that the book has completely entered the return container. |
-| Embedded Hardware | IR Sensor (Safety Obstruction Detection) | Detects hands or objects blocking the slot before closing. |
 | Embedded Hardware | LCD Display | Displays system instructions, notifications, and transaction status. |
 | Embedded Hardware | Buzzer | Provides audible confirmation of successful returns or alerts. |
 | Backend Software | Flask Web Application | Processes RFID requests, communicates with Arduino, and manages library transactions. |
@@ -86,12 +84,13 @@ and buzzer.
    the scanned book exists in the database and is currently borrowed.
 2. **Book Validation Module** — Checks the borrowing status of the scanned
    book before allowing the return process.
-3. **Return Slot Control Module** — Controls the servo motor to automatically
-   open and close the return slot.
-4. **Book Entry Verification Module** — Uses multiple IR sensors to verify
-   that the book has entered and fully passed into the return container.
-5. **Safety Monitoring Module** — Uses the obstruction sensor to prevent the
-   return slot from closing while an object or hand is detected.
+3. **Return Slot Control Module** — Controls the servo motor to open
+   the door flap (book can enter) and close it after insertion.
+4. **Book Entry Verification Module** — Uses 2 IR sensors (entrance and
+   full entry) to verify that the book has entered and fully passed into
+   the return container.
+5. **Closing Warning Module** — After full entry is detected, the system
+   sounds a double beep and displays a warning for 2 seconds before closing.
 6. **Database Management Module** — Updates the return status only after
    successful verification of the deposited book.
 7. **User Notification Module** — Displays messages on the LCD and activates
@@ -104,33 +103,31 @@ and buzzer.
 1. The user scans the RFID tag attached to the book.
 2. The Flask application checks the MySQL database to verify that the book
    exists and is currently borrowed.
-3. If valid, the Arduino activates the servo motor to open the return slot.
+3. If valid, the Arduino opens the door flap so the book can slide in.
 4. The LCD instructs the user to insert the book.
 5. The entrance IR sensor detects that the book has been inserted.
 6. The full-entry IR sensor confirms that the book has completely entered
    the return container.
-7. The safety IR sensor checks whether any obstruction remains before
-   allowing the slot to close.
-8. If no obstruction is detected, the servo closes the slot.
-9. The Flask application updates the MySQL database, marking the book as
+7. The closing warning sounds a double beep and displays a message, then the
+   servo closes the door flap after 2 seconds.
+8. The Flask application updates the MySQL database, marking the book as
    returned.
-10. The LCD displays a success message and the buzzer provides audible
-    confirmation.
-11. If any validation fails (timeout, invalid RFID, incomplete insertion, or
-    obstruction), the system cancels the transaction and resets.
+9. The LCD displays a success message and the buzzer provides audible
+   confirmation.
+10. If any validation fails (timeout, invalid RFID, incomplete insertion), the
+    system cancels the transaction and resets.
 
 ### Returning Process (condensed)
 
 1. Scan the RFID-tagged book.
 2. Validate the book information in the database.
-3. Open the return slot automatically.
+3. Shelf linkage is released automatically.
 4. User inserts the book.
 5. Entrance IR sensor detects the book.
 6. Full-entry IR sensor confirms complete deposit.
-7. Safety IR sensor checks for any obstruction.
-8. Close the return slot.
-9. Update the database to indicate that the book has been returned.
-10. Display a success message on the LCD and sound the buzzer.
+7. Closing warning sounds (double beep, 2s delay), then the servo closes the door flap.
+8. Update the database to indicate that the book has been returned.
+9. Display a success message on the LCD and sound the buzzer.
 
 ---
 
@@ -144,7 +141,7 @@ and buzzer.
 | No confirmation that the book was fully deposited. | Dual IR sensors verify complete book insertion before updating records. |
 | Staff must physically monitor the return process. | Automated monitoring minimizes staff workload. |
 | Users receive little or no immediate feedback. | LCD messages and buzzer provide instant status updates. |
-| Return slot may close while obstructed. | Safety sensor prevents accidental closure when an obstruction is detected. |
+| Return slot may close too quickly for the user. | Closing warning (2s double beep) gives the user time to move their hand before closing. |
 
 ---
 
@@ -155,10 +152,9 @@ and buzzer.
 | Arduino Uno R3 | ATmega328P, 5V, 16 MHz | 1 | Main microcontroller that controls all hardware components and communicates with the backend. |
 | RFID Reader | RC522, 13.56 MHz | 1 | Reads the RFID UID attached to each library book. |
 | RFID Tags | 13.56 MHz RFID Sticker/Card | 5–10 | Unique identifier attached to books. |
-| Servo Motor | SG90 Micro Servo, 5V | 1 | Opens and closes the return slot. |
+| Servo Motor | SG90 Micro Servo, 5V | 1 | Opens and closes the door flap. |
 | IR Sensor (Entrance Detection) | Infrared Obstacle Sensor, 3.3–5V | 1 | Detects when the book enters the return slot. |
 | IR Sensor (Full Entry Detection) | Infrared Obstacle Sensor, 3.3–5V | 1 | Confirms the book has completely entered the return container. |
-| IR Sensor (Safety Obstruction Detection) | Infrared Obstacle Sensor, 3.3–5V | 1 | Detects hands or objects blocking the slot before closing. |
 | LCD Display | 16×2 LCD with I2C Module | 1 | Displays instructions and system status. |
 | Buzzer | Active Buzzer, 5V | 1 | Provides audible alerts and confirmation sounds. |
 | Breadboard | 830 Tie-Point | 1 | Used for circuit prototyping. |
@@ -238,7 +234,7 @@ and buzzer.
   obstacle sensor module used — verify and adjust `IR_ACTIVE_STATE` in the
   firmware accordingly.
 - **Dashboard live updates** use Flask-SocketIO so librarians see scan
-  results, hardware status (entrance/full-entry/obstruction), and completed
+  results, hardware status (entrance/full-entry), and completed
   returns in real time without refreshing the page.
 - **Local deployment target:** this is meant to run entirely on the demo
   laptop (Flask + MySQL + Arduino over USB), not a public server, per the

@@ -50,7 +50,7 @@ BAUD = 115200
 TIMEOUT = 1
 PING_TIMEOUT = 3
 BOOT_DELAY = 3.5
-FLASK_API = "http://localhost:5000/api/hw-status"
+FLASK_API = "http://localhost:5001/api/hw-status"
 
 
 def ts():
@@ -97,9 +97,7 @@ def colorize_line(line):
     if upper.startswith("STATUS,"):
         status = upper.split(",", 1)[1] if "," in upper else ""
         color = C.YELLOW
-        if "OBSTRUCTION" in status:
-            color = C.RED
-        elif "SLOT_CLOSED" in status:
+        if "SLOT_CLOSED" in status:
             color = C.GREEN
         return f"{color}{line}{C.RESET}", "STATUS"
     if upper.startswith("RETURN_SUCCESS"):

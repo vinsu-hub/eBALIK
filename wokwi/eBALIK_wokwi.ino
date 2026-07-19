@@ -8,14 +8,14 @@
   Hardware (Wokwi simulation):
     - MFRC522 RFID Reader (SPI)
     - SG90 Servo Motor (return slot)
-    - 3x Pushbuttons (Entrance / Full Entry / Safety Obstruction)
+    - 2x Pushbuttons (Entrance / Full Entry)
     - 16x2 I2C LCD
     - Active Buzzer
 
   Button mapping:
     btn_entrance   (pin 2) - simulates IR sensor detecting book entering
     btn_fullentry  (pin 3) - simulates IR sensor confirming full entry
-    btn_obstruction (pin 4) - simulates IR sensor detecting obstruction
+    (pin 4 unused -- previously obstruction sensor)
 
   Communication:
     Talks to the Flask backend over USB Serial (115200 baud) using a
@@ -26,7 +26,6 @@
       RFID,<uid>                 a card was scanned
       STATUS,ENTRANCE_DETECTED   book entering the slot
       STATUS,FULL_ENTRY          book fully inside
-      STATUS,OBSTRUCTION         obstruction seen before close
       STATUS,SLOT_CLOSED         slot closed safely
       RETURN_SUCCESS,<uid>       full cycle completed
       RETURN_FAILED,<uid>,<reason>
@@ -43,7 +42,7 @@
     Servo   signal=6
     Button 1 (entrance)   = 2  (with pull-down resistor)
     Button 2 (full entry) = 3  (with pull-down resistor)
-    Button 3 (obstruction)= 4  (with pull-down resistor)
+    (pin 4 unused -- previously obstruction sensor)
     Buzzer             = 5
     LCD (I2C)          = SDA A4 / SCL A5, addr 0x27 (16x2)
 */
@@ -60,7 +59,6 @@
 #define SERVO_PIN     6
 #define IR_ENTRANCE_PIN     2
 #define IR_FULL_ENTRY_PIN   3
-#define IR_OBSTRUCTION_PIN  4
 #define BUZZER_PIN    5
 
 // Wokwi pushbuttons with pull-down resistors are active-HIGH.
@@ -68,15 +66,18 @@
 // This is OPPOSITE to real IR sensors which are active-LOW.
 #define IR_ACTIVE_STATE HIGH
 
-// Servo angles
-#define SERVO_CLOSED_ANGLE 0
-#define SERVO_OPEN_ANGLE   90
+// Servo angles (door flap mechanism -- calibrated 2026-07-18)
+// Re-verify with arduino/servo_calibration/servo_calibration.ino if
+// the linkage or servo mounting changes.
+#define SERVO_CLOSED_ANGLE 10
+#define SERVO_OPEN_ANGLE   80
 
 // Timeouts (milliseconds) - shortened for faster simulation testing
 const unsigned long RFID_VALIDATION_TIMEOUT = 5000;   // waiting for VALID/INVALID from PC
 const unsigned long INSERT_TIMEOUT          = 15000;  // waiting for book to be inserted
-const unsigned long FULL_ENTRY_TIMEOUT       = 8000;   // waiting for full entry after entrance detected
-const unsigned long OBSTRUCTION_CLEAR_TIMEOUT = 10000; // waiting for hand/object to clear
+const unsigned long FULL_ENTRY_TIMEOUT      = 8000;   // waiting for full entry after entrance detected
+const unsigned long CLOSE_WARNING_MS        = 2000;   // "closing shortly" warning before slot closes
+const unsigned long RFID_DEBOUNCE_MS        = 3000;   // ignore same tag for 3s after scan
 
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN);
 Servo returnSlotServo;
@@ -88,15 +89,20 @@ enum SystemState {
   STATE_AWAITING_VALIDATION,
   STATE_SLOT_OPEN_AWAIT_ENTRANCE,
   STATE_AWAIT_FULL_ENTRY,
-  STATE_AWAIT_OBSTRUCTION_CLEAR,
+  STATE_CLOSING_WARNING,
   STATE_CLOSING,
   STATE_ERROR_DISPLAY
 };
 
 SystemState currentState = STATE_IDLE;
 unsigned long stateEnteredAt = 0;
+unsigned long lastScanTime = 0;
 String pendingUID = "";
 String serialBuffer = "";
+
+// Tracks whether the second warning pulse has fired for the current
+// STATE_CLOSING_WARNING cycle, so it only fires once per cycle.
+bool closingPulse2Fired = false;
 
 void setup() {
   Serial.begin(115200);
@@ -106,7 +112,6 @@ void setup() {
   // Button inputs - using internal pull-down is handled by external resistors in diagram
   pinMode(IR_ENTRANCE_PIN, INPUT);
   pinMode(IR_FULL_ENTRY_PIN, INPUT);
-  pinMode(IR_OBSTRUCTION_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
@@ -129,7 +134,6 @@ void setup() {
   Serial.println("[Wokwi] Buttons simulate IR sensors:");
   Serial.println("[Wokwi]   btn_entrance   -> book entering slot");
   Serial.println("[Wokwi]   btn_fullentry  -> book fully inserted");
-  Serial.println("[Wokwi]   btn_obstruction -> hand/object blocking");
 }
 
 void loop() {
@@ -143,6 +147,7 @@ void loop() {
     case STATE_AWAITING_VALIDATION:
       if (millis() - stateEnteredAt > RFID_VALIDATION_TIMEOUT) {
         showError("No response", "Try again");
+        blinkRed();
         sendReturnFailed(pendingUID, "PC_TIMEOUT");
         goIdleAfterDelay(1500);
       }
@@ -156,6 +161,7 @@ void loop() {
         stateEnteredAt = millis();
       } else if (millis() - stateEnteredAt > INSERT_TIMEOUT) {
         showError("Timeout", "No book inserted");
+        blinkRed();
         sendReturnFailed(pendingUID, "INSERT_TIMEOUT");
         closeSlotAndReset();
       }
@@ -164,38 +170,42 @@ void loop() {
     case STATE_AWAIT_FULL_ENTRY:
       if (irTriggered(IR_FULL_ENTRY_PIN)) {
         Serial.println("STATUS,FULL_ENTRY");
-        showMessage("Checking slot...", "Please wait");
-        currentState = STATE_AWAIT_OBSTRUCTION_CLEAR;
+        showMessage("Book received!", "Closing shortly");
+        beepClosingPulse();
+        closingPulse2Fired = false;
+        currentState = STATE_CLOSING_WARNING;
         stateEnteredAt = millis();
       } else if (millis() - stateEnteredAt > FULL_ENTRY_TIMEOUT) {
         showError("Incomplete", "Book not fully in");
+        blinkRed();
         sendReturnFailed(pendingUID, "INCOMPLETE_ENTRY");
         closeSlotAndReset();
       }
       break;
 
-    case STATE_AWAIT_OBSTRUCTION_CLEAR:
-      if (irTriggered(IR_OBSTRUCTION_PIN)) {
-        // something (hand/object) still blocking the slot
-        if (millis() - stateEnteredAt == 0 || (millis() - stateEnteredAt) % 1000 < 20) {
-          Serial.println("STATUS,OBSTRUCTION");
-          showMessage("Please remove", "hand from slot");
-        }
-        if (millis() - stateEnteredAt > OBSTRUCTION_CLEAR_TIMEOUT) {
-          showError("Cancelled", "Obstruction timeout");
-          sendReturnFailed(pendingUID, "OBSTRUCTION_TIMEOUT");
-          goIdleAfterDelay(1500); // leave slot open, do not force-close on obstruction
-        }
-      } else {
+    case STATE_CLOSING_WARNING: {
+      // Non-blocking: still services serial commands and stays responsive
+      // for the full warning window instead of freezing execution.
+      unsigned long elapsed = millis() - stateEnteredAt;
+
+      // Second pulse partway through the warning window, fires once.
+      if (!closingPulse2Fired && elapsed > (CLOSE_WARNING_MS / 2)) {
+        beepClosingPulse();
+        closingPulse2Fired = true;
+      }
+
+      if (elapsed > CLOSE_WARNING_MS) {
         currentState = STATE_CLOSING;
       }
       break;
+    }
 
     case STATE_CLOSING:
       returnSlotServo.write(SERVO_CLOSED_ANGLE);
       Serial.println("STATUS,SLOT_CLOSED");
       Serial.print("RETURN_SUCCESS,");
       Serial.println(pendingUID);
+      blinkGreen();
       beepSuccess();
       showMessage("Return success!", "Thank you.");
       goIdleAfterDelay(2000);
@@ -213,6 +223,15 @@ void pollForCard() {
   if (!rfid.PICC_ReadCardSerial()) return;
 
   String uid = uidToString(rfid.uid.uidByte, rfid.uid.size);
+
+  // Debounce: ignore same UID within cooldown period
+  if (uid == pendingUID && (millis() - lastScanTime) < RFID_DEBOUNCE_MS) {
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+    return;
+  }
+
+  lastScanTime = millis();
   pendingUID = uid;
 
   Serial.print("RFID,");
@@ -298,6 +317,7 @@ void handleCommand(String line) {
     openSlotForInsertion();
   } else if (cmd == "INVALID") {
     showError("Invalid book", "Not borrowed");
+    blinkRed();
     beepError();
     goIdleAfterDelay(1500);
   }
@@ -381,4 +401,22 @@ void beepSuccess() {
 
 void beepError() {
   tone(BUZZER_PIN, 400, 300);
+}
+
+void beepClosingPulse() {
+  tone(BUZZER_PIN, 1200, 80);
+  delay(120);
+  tone(BUZZER_PIN, 1200, 80);
+}
+
+// ---------- LED helpers ----------
+// Wokwi doesn't have LEDs in the diagram, but these functions keep the
+// firmware consistent with the real build. They compile fine -- the calls
+// just toggle digital pins that nothing is connected to in simulation.
+void blinkGreen() {
+  // no LED in Wokwi diagram
+}
+
+void blinkRed() {
+  // no LED in Wokwi diagram
 }
